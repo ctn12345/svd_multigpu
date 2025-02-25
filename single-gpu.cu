@@ -14,13 +14,13 @@ using namespace std::chrono;
 // fig 14 a
 // 100x512x512 speedup over cusolver(CUDA platform)
 void test17(){
-    int gpu0=0,gpu1=0;
+    int gpu0 = 0,gpu1=1;
     int batch = 1;
-    int height = 4096;
-    int width = 4096;
+    int height = 64;
+    int width = 64;
     int th=0, tw=0;
     // int shape[3] = {batch, height, width};
-    int minmn = height > width/2 ? width/2 : height;
+    int minmn = height > width ? width : height;
 
     double* host_A = (double*)malloc(sizeof(double) * height * width);
     string matrix_path1 = "./data/generated_matrixes/A_h" + to_string(height) + "_w" + to_string(width)+ ".txt";
@@ -56,7 +56,7 @@ void test17(){
     th = 32;
     int k = tw/2;
     int slice = th;
-    int width_perdevice=width/2;
+    int width_perdevice=width/1;
 
     // printf("input matrix shape: %d × %d × %d, tile shape: %d × %d\n", batch, height0, width0, th, tw);
 
@@ -228,130 +228,21 @@ void test17(){
     host_A2 = (double*)malloc(sizeof(double)*width_perdevice*height);
     double test_result[4] = {0, 1.0, 1.0, 1.0}; // 0:tag, 1:time
     test_result[0] = 2.0;
-    cudaStream_t stream1;
-    cudaStreamCreate(&stream1);
-    cudaStream_t stream2;
-    cudaStreamCreate(&stream2);
     cudaMemcpy(dev_A,host_A,sizeof(double)*height*width_perdevice,cudaMemcpyHostToDevice);
-    cudaMemcpy(dev_A_1,host_A+height*width_perdevice,sizeof(double)*height*width_perdevice,cudaMemcpyHostToDevice);
-    cudaMemcpy(host_A2,dev_A_1,sizeof(double)*p1*k*height,cudaMemcpyDeviceToHost);
-    // printf("host_A1 %d\n",i);
-    // for(int j = 0;j < p1*k*height;++j){
-    //     printf("%lf ",host_A2[j]);
-    // }
+    // cudaMemcpy(dev_A_1,host_A+height*width_perdevice,sizeof(double)*height*width_perdevice,cudaMemcpyHostToDevice);
+    // cudaMemcpy(host_A2,dev_A_1,sizeof(double)*p1*k*height,cudaMemcpyDeviceToHost);
+    // // printf("host_A1 %d\n",i);
+    for(int j = 0;j < 2*p1*k*height;++j){
+        printf("%lf ",host_A[j]);
+    }
     // printf("\n");
 
     // double* dev_test_A = (double*)malloc(sizeof(double)*2*p*k*height);
     // cudaMemcpy(dev_test_A,host_A,sizeof(double)*2*p*k*height,cudaMemcpyHostToDevice);
     // int shape1[3] = 
     // our svd
-    cudaEvent_t event1;
-    cudaEvent_t event2;
-
-    cudaEventCreate(&event1);
-    cudaEventCreate(&event2);
-
-    clock_t start,end;
-    start = clock();
-    for(int i = 0;i < 4;++i){
-        svd_large_matrix_1(gpu0,stream1,false,dev_A, shape, dev_diag, dev_U, dev_V,dev_V0, th, tw, dev_roundRobin,dev_jointG,dev_Aij,dev_AiAi,dev_AiAj,dev_AjAj,dev_pairsOfEVD,dev_allpass,dev_pass,dev_norm,dev_order,dev_tempFnorm,dev_Fnorm);
-        svd_large_matrix_1(gpu1,stream2,false,dev_A_1, shape, dev_diag_1, dev_U_1, dev_V_1,dev_V0, th, tw, dev_roundRobin_1,dev_jointG_1,dev_Aij_1,dev_AiAi_1,dev_AiAj_1,dev_AjAj_1,dev_pairsOfEVD_1,dev_allpass_1,dev_pass_1,dev_norm_1,dev_order_1,dev_tempFnorm_1,dev_Fnorm_1);
-        // cudaMemcpy(host_A1,dev_A,sizeof(double)*p*k*height,cudaMemcpyDeviceToHost);
-        // printf("host_A %d\n",i);
-        // for(int j = 0;j < p*k*height;++j){
-        //     printf("%lf ",host_A1[j]);
-        // }
-        // printf("\n");
-        
-        cudaMemcpyAsync(dev_swap_data,dev_A+p*k*height,sizeof(double)*p*k*height,cudaMemcpyDeviceToDevice,stream1);
-        cudaMemcpyAsync(dev_swap_data_1,dev_A_1+p1*k*height,sizeof(double)*p1*k*height,cudaMemcpyDeviceToDevice,stream2);
-        // cudaEventRecord(event1, stream1);
-        // cudaEventRecord(event2, stream2);
-        // sys
-        // 流1等待流2的事件完成
-		// cudaStreamWaitEvent(stream1, event2, 0);  // 流1等待流2的事件
-		// // 流2等待流1的事件完成
-		// cudaStreamWaitEvent(stream2, event1, 0);  // 流2等待流1的事件
-        //
-        cudaStreamSynchronize(stream2);  // 等待 stream2 完
-        cudaMemcpyAsync(dev_A+p*k*height,dev_swap_data_1,sizeof(double)*p1*k*height,cudaMemcpyDeviceToDevice,stream1);
-
-        cudaStreamSynchronize(stream1);  // 等待 stream1 完
-        cudaMemcpyAsync(dev_A_1+p1*k*height,dev_swap_data,sizeof(double)*p*k*height,cudaMemcpyDeviceToDevice,stream2);
-
-        // cudaEventRecord(event1, stream1);
-        // cudaEventRecord(event2, stream2);
-        // // sys
-        // // 流1等待流2的事件完成
-		// cudaStreamWaitEvent(stream1, event2, 0);  // 流1等待流2的事件
-		// // 流2等待流1的事件完成
-		// cudaStreamWaitEvent(stream2, event1, 0);  // 流2等待流1的事件
-
-        cudaStreamSynchronize(stream1);  // 等待 stream1 完
-        cudaStreamSynchronize(stream2);  // 等待 stream2 完
-
-        svd_large_matrix_1(gpu0,stream1,false,dev_A, shape, dev_diag, dev_U, dev_V,dev_V0, th, tw, dev_roundRobin,dev_jointG,dev_Aij,dev_AiAi,dev_AiAj,dev_AjAj,dev_pairsOfEVD,dev_allpass,dev_pass,dev_norm,dev_order,dev_tempFnorm,dev_Fnorm);
-        svd_large_matrix_1(gpu1,stream2,false,dev_A_1, shape, dev_diag_1, dev_U_1, dev_V_1,dev_V0, th, tw, dev_roundRobin_1,dev_jointG_1,dev_Aij_1,dev_AiAi_1,dev_AiAj_1,dev_AjAj_1,dev_pairsOfEVD_1,dev_allpass_1,dev_pass_1,dev_norm_1,dev_order_1,dev_tempFnorm_1,dev_Fnorm_1);
-
-        cudaMemcpyAsync(dev_swap_data,dev_A+p*k*height,sizeof(double)*p*k*height,cudaMemcpyDeviceToDevice,stream1);
-        cudaMemcpyAsync(dev_swap_data_1,dev_A_1,sizeof(double)*p1*k*height,cudaMemcpyDeviceToDevice,stream2);
-        // sys
-        // cudaEventRecord(event1, stream1);
-        // cudaEventRecord(event2, stream2);
-        // // sys
-        // // 流1等待流2的事件完成
-		// cudaStreamWaitEvent(stream1, event2, 0);  // 流1等待流2的事件
-		// // 流2等待流1的事件完成
-		// cudaStreamWaitEvent(stream2, event1, 0);  // 流2等待流1的事件
-        //
-        cudaStreamSynchronize(stream2);  // 等待 stream2 完
-        cudaMemcpyAsync(dev_A+p*k*height,dev_swap_data_1,sizeof(double)*p1*k*height,cudaMemcpyDeviceToDevice,stream1);
-
-        cudaStreamSynchronize(stream1);  // 等待 stream1 完
-        cudaMemcpyAsync(dev_A_1,dev_swap_data,sizeof(double)*p*k*height,cudaMemcpyDeviceToDevice,stream2);
-
-        cudaStreamSynchronize(stream1);  // 等待 stream1 完
-        cudaStreamSynchronize(stream2);  // 等待 stream2 完
-        // cudaEventRecord(event1, stream1);
-        // cudaEventRecord(event2, stream2);
-        // // sys
-        // // 流1等待流2的事件完成
-		// cudaStreamWaitEvent(stream1, event2, 0);  // 流1等待流2的事件
-		// // 流2等待流1的事件完成
-		// cudaStreamWaitEvent(stream2, event1, 0);  // 流2等待流1的事件
-        bool flag = i==3;
-        svd_large_matrix_1(gpu0,stream1,flag,dev_A, shape, dev_diag, dev_U, dev_V,dev_V0, th, tw, dev_roundRobin,dev_jointG,dev_Aij,dev_AiAi,dev_AiAj,dev_AjAj,dev_pairsOfEVD,dev_allpass,dev_pass,dev_norm,dev_order,dev_tempFnorm,dev_Fnorm);
-        svd_large_matrix_1(gpu1,stream2,flag,dev_A_1, shape, dev_diag_1, dev_U_1, dev_V_1,dev_V0, th, tw, dev_roundRobin_1,dev_jointG_1,dev_Aij_1,dev_AiAi_1,dev_AiAj_1,dev_AjAj_1,dev_pairsOfEVD_1,dev_allpass_1,dev_pass_1,dev_norm_1,dev_order_1,dev_tempFnorm_1,dev_Fnorm_1);
-        if(i != 3){
-            
-            cudaMemcpyAsync(dev_swap_data,dev_A+p*k*height,sizeof(double)*p*k*height,cudaMemcpyDeviceToDevice,stream1);
-            cudaMemcpyAsync(dev_swap_data_1,dev_A_1+p1*k*height,sizeof(double)*p1*k*height,cudaMemcpyDeviceToDevice,stream2);
-            // sys
-            // cudaEventRecord(event1, stream1);
-            // cudaEventRecord(event2, stream2);
-            // // sys
-            // // 流1等待流2的事件完成
-            // cudaStreamWaitEvent(stream1, event2, 0);  // 流1等待流2的事件
-            // // 流2等待流1的事件完成
-            // cudaStreamWaitEvent(stream2, event1, 0);  // 流2等待流1的事件
-            //
-            cudaStreamSynchronize(stream2);  // 等待 stream2 完
-            cudaMemcpyAsync(dev_A+p*k*height,dev_swap_data_1,sizeof(double)*p1*k*height,cudaMemcpyDeviceToDevice,stream1);
-
-            cudaStreamSynchronize(stream1);  // 等待 stream1 完
-            cudaMemcpyAsync(dev_A_1+p1*k*height,dev_swap_data,sizeof(double)*p*k*height,cudaMemcpyDeviceToDevice,stream2);
-
-            // cudaEventRecord(event1, stream1);
-            // cudaEventRecord(event2, stream2);
-            // // sys
-            // // 流1等待流2的事件完成
-            // cudaStreamWaitEvent(stream1, event2, 0);  // 流1等待流2的事件
-            // // 流2等待流1的事件完成
-            // cudaStreamWaitEvent(stream2, event1, 0);  // 流2等待流1的事件
-        }
-    }
-    end = clock();
-    printf("it costs %lf s\n",(double)(end-start)/CLOCKS_PER_SEC);
+    svd_large_matrix_1(gpu0,true,dev_A, shape, dev_diag, dev_U, dev_V,dev_V0, th, tw, dev_roundRobin,dev_jointG,dev_Aij,dev_AiAi,dev_AiAj,dev_AjAj,dev_pairsOfEVD,dev_allpass,dev_pass,dev_norm,dev_order,dev_tempFnorm,dev_Fnorm);
+    
     
     // cusolver svd
     // cusolver_svd(dev_A, shape, dev_diag, dev_U, dev_V, test_result);
@@ -365,12 +256,12 @@ void test17(){
         fprintf(file,"\n");
     }
     double* host_diag = (double*)malloc(sizeof(double)*minmn*batch);
-    double* host_diag1 = (double*)malloc(sizeof(double)*minmn*batch);
+    // double* host_diag1 = (double*)malloc(sizeof(double)*minmn*batch);
     cudaMemcpy(host_diag,dev_diag,sizeof(double)*minmn*batch,cudaMemcpyDeviceToHost);
-    cudaMemcpy(host_diag1,dev_diag_1,sizeof(double)*minmn*batch,cudaMemcpyDeviceToHost);
+    // cudaMemcpy(host_diag1,dev_diag_1,sizeof(double)*minmn*batch,cudaMemcpyDeviceToHost);
     FILE* file2 = fopen("dev_diag.txt","w");
     for(int f = 0;f < minmn;++f){
-        fprintf(file2,"%lf %lf ",host_diag[f],host_diag1[f]);
+        fprintf(file2,"%lf ",host_diag[f]);
     }
     
     printf("matrix:%d×%d×%d, speedup over cusolver: %lf/%lf = %lf\n", batch, height, width, test_result[2], test_result[1], test_result[2]/test_result[1]); 
