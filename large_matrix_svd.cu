@@ -81,11 +81,17 @@ void svd_large_matrix_1(int gpu,cudaStream_t& stream,bool isfinal,double* dev_A,
     cudaDeviceSynchronize();
     computeFnorm2<<<batch, 32,0,stream>>>(dev_tempFnorm, dev_Fnorm, p);  //&1.3
 
-    dim3 dimGrid0(1, 1, 1);
-    dim3 dimBlock0(32, 32, 1);
+    
     // generate_roundRobin_64<<<dimGrid0, dimBlock0>>>(dev_roundRobin, k); //&1.1
-    generate_roundRobin_128<<<dimGrid0, dimBlock0,0,stream>>>(dev_roundRobin, 2*k);
-
+    
+    // int* host_round = (int*)malloc(sizeof(int)*(2*k-1)*2*k);
+    // cudaMemcpy(host_round,dev_roundRobin,sizeof(int)*2*k*(2*k-1),cudaMemcpyDeviceToHost);
+    // for(int i = 0;i < 2*k-1;++i){
+    //     for(int j = 0;j < 2*k;++j){
+    //         printf("%d ",host_round[i*2*k+j]);
+    //     }
+    //     printf("\n");
+    // }
     getRankNewNew<<<1, 1024,0,stream>>>(2 * p);  //&1.3
     cudaDeviceSynchronize();
 
