@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <chrono>
+#include<omp.h>
 
 #include "matrix_generate.hpp"
 #include "large_matrix_svd.cu"
@@ -16,8 +17,8 @@ using namespace std::chrono;
 void test17(){
     int gpu0=0,gpu1=1;
     int batch = 1;
-    int height = 64;
-    int width = 64;
+    int height = 4096;
+    int width = 4096;
     int th=0, tw=0;
     // int shape[3] = {batch, height, width};
     int minmn = height > width/2 ? width/2 : height;
@@ -148,223 +149,268 @@ void test17(){
 
 
 #pragma region
-    cudaSetDevice(gpu0);
-    cudaMalloc((void **)&dev_U, sizeof(double) * height * height * batch);
-    cudaMalloc((void **)&dev_A, sizeof(double) * height * width_perdevice * batch);
-    cudaMalloc((void **)&dev_V, sizeof(double) * width_perdevice * width_perdevice * batch);
-    cudaMalloc((void **)&dev_V0, sizeof(double) * width_perdevice * width_perdevice * batch);
-    cudaMalloc((void **)&dev_diag,sizeof(double) * minmn);
-    // dev_U = dev_U0;
-    // dev_diag = dev_diag0;
-
-    
-    // cudaMalloc((void **)&dev_V0, sizeof(double) * width0 * width0 * batch);
-
-    cudaMalloc((void **)&dev_roundRobin, sizeof(int) * (2 * k - 1) * 2 * k);
-
-    cudaMalloc((void **)&dev_jointG, sizeof(double) * 2*k * 2*k * p*batch);
-    cudaMalloc((void **)&dev_Aij, sizeof(double) * height * 2*k * p*batch);
-
-    cudaMalloc((void **)&dev_AiAi, sizeof(double) * k * k * sliceNum * p * batch);
-    cudaMalloc((void **)&dev_AiAj, sizeof(double) * k * k * sliceNum * p * batch);
-    cudaMalloc((void **)&dev_AjAj, sizeof(double) * k * k * sliceNum * p * batch);
-    cudaMalloc((void **)&dev_pairsOfEVD, sizeof(int) * 2 * p * batch);
-    // cudaMalloc((void **)&dev_swap_data,sizeof(double)*p*height*k);
-
-    host_allpass = (unsigned *)malloc(sizeof(unsigned) * batch);
-    host_pass = (unsigned *)malloc(sizeof(unsigned) * p * batch);
-    cudaMalloc((void **)&dev_allpass, sizeof(unsigned) * batch);
-    cudaMalloc((void **)&dev_pass, sizeof(unsigned) * p * batch);
-
-    cudaMalloc((void **)&dev_norm, sizeof(double) * 2 * p * batch);
-    cudaMalloc((void **)&dev_order, sizeof(unsigned int) * 2 * p * batch);
-    host_Fnorm = (double *)malloc(sizeof(double) * batch);
-    cudaMalloc((void **)&dev_tempFnorm, sizeof(double) * 2 * p * batch);
-    cudaMalloc((void **)&dev_Fnorm, sizeof(double) * batch);
-
-#pragma endregion
-#pragma region
+    cudaStream_t stream1;
+    cudaStreamCreate(&stream1);
     cudaSetDevice(gpu1);
-    cudaMalloc((void **)&dev_diag_1,sizeof(double) * minmn);
-    cudaMalloc((void **)&dev_A_1, sizeof(double) * height * width_perdevice * batch);
-    cudaMalloc((void **)&dev_V_1, sizeof(double) * width_perdevice * width_perdevice * batch);
-    cudaMalloc((void **)&dev_V1, sizeof(double) * width_perdevice * width_perdevice * batch);
-    cudaMalloc((void **)&dev_U_1, sizeof(double) * height * height * batch);
-    // cudaMalloc((void **)&dev_V0, sizeof(double) * width0 * width0 * batch);
+    cudaStream_t stream2;
+    cudaStreamCreate(&stream2);
+    omp_set_num_threads(2);
+#pragma endregion
 
-    cudaMalloc((void **)&dev_roundRobin_1, sizeof(int) * (2 * k - 1) * 2 * k);
 
-    cudaMalloc((void **)&dev_jointG_1, sizeof(double) * 2*k * 2*k * p*batch);
-    cudaMalloc((void **)&dev_Aij_1, sizeof(double) * height * 2*k * p*batch);
+#pragma region
+    #pragma omp parallel
+    {
+        int gpuid = omp_get_thread_num();
+        cudaSetDevice(gpuid);
+        if(gpuid == 0){
+            cudaMalloc((void **)&dev_U, sizeof(double) * height * height * batch);
+            cudaMalloc((void **)&dev_A, sizeof(double) * height * width_perdevice * batch);
+            cudaMalloc((void **)&dev_V, sizeof(double) * width_perdevice * width_perdevice * batch);
+            cudaMalloc((void **)&dev_V0, sizeof(double) * width_perdevice * width_perdevice * batch);
+            cudaMalloc((void **)&dev_diag,sizeof(double) * minmn);
+            // dev_U = dev_U0;
+            // dev_diag = dev_diag0;            
+            // cudaMalloc((void **)&dev_V0, sizeof(double) * width0 * width0 * batch);
 
-    cudaMalloc((void **)&dev_AiAi_1, sizeof(double) * k * k * sliceNum * p1 * batch);
-    cudaMalloc((void **)&dev_AiAj_1, sizeof(double) * k * k * sliceNum * p1 * batch);
-    cudaMalloc((void **)&dev_AjAj_1, sizeof(double) * k * k * sliceNum * p1 * batch);
-    cudaMalloc((void **)&dev_pairsOfEVD_1, sizeof(int) * 2 * p1 * batch);
-    // cudaMalloc((void **)&dev_swap_data_1,sizeof(double)*p1*height*k);
+            cudaMalloc((void **)&dev_roundRobin, sizeof(int) * (2 * k - 1) * 2 * k);
 
-    host_allpass_1 = (unsigned *)malloc(sizeof(unsigned) * batch);
-    host_pass_1 = (unsigned *)malloc(sizeof(unsigned) * p1 * batch);
-    cudaMalloc((void **)&dev_allpass_1, sizeof(unsigned) * batch);
-    cudaMalloc((void **)&dev_pass_1, sizeof(unsigned) * p1 * batch);
+            cudaMalloc((void **)&dev_jointG, sizeof(double) * 2*k * 2*k * p*batch);
+            cudaMalloc((void **)&dev_Aij, sizeof(double) * height * 2*k * p*batch);
 
-    cudaMalloc((void **)&dev_norm_1, sizeof(double) * 2 * p1 * batch);
-    cudaMalloc((void **)&dev_order_1, sizeof(unsigned int) * 2 * p1 * batch);
-    host_Fnorm_1 = (double *)malloc(sizeof(double) * batch);
-    cudaMalloc((void **)&dev_tempFnorm_1, sizeof(double) * 2 * p1 * batch);
-    cudaMalloc((void **)&dev_Fnorm_1, sizeof(double) * batch);
+            cudaMalloc((void **)&dev_AiAi, sizeof(double) * k * k * sliceNum * p * batch);
+            cudaMalloc((void **)&dev_AiAj, sizeof(double) * k * k * sliceNum * p * batch);
+            cudaMalloc((void **)&dev_AjAj, sizeof(double) * k * k * sliceNum * p * batch);
+            cudaMalloc((void **)&dev_pairsOfEVD, sizeof(int) * 2 * p * batch);
+            // cudaMalloc((void **)&dev_swap_data,sizeof(double)*p*height*k);
 
+            host_allpass = (unsigned *)malloc(sizeof(unsigned) * batch);
+            host_pass = (unsigned *)malloc(sizeof(unsigned) * p * batch);
+            cudaMalloc((void **)&dev_allpass, sizeof(unsigned) * batch);
+            cudaMalloc((void **)&dev_pass, sizeof(unsigned) * p * batch);
+
+            cudaMalloc((void **)&dev_norm, sizeof(double) * 2 * p * batch);
+            cudaMalloc((void **)&dev_order, sizeof(unsigned int) * 2 * p * batch);
+            host_Fnorm = (double *)malloc(sizeof(double) * batch);
+            cudaMalloc((void **)&dev_tempFnorm, sizeof(double) * 2 * p * batch);
+            cudaMalloc((void **)&dev_Fnorm, sizeof(double) * batch);
+
+            cudaMemset(dev_V, 0, sizeof(double) * width_perdevice * width_perdevice * batch);
+            cudaMemset(dev_U, 0, sizeof(double) * height * height * batch);
+            // cudaMemset(dev_V0, 0, sizeof(double) * width_perdevice * width_perdevice * batch);
+            cudaMemset(dev_pairsOfEVD, 0, sizeof(int) * 2 * p * batch); 
+            memset(host_pass, 0, sizeof(unsigned) * p * batch);
+            cudaMemset(dev_pass, 0, sizeof(unsigned) * p * batch);
+            cudaMemcpyAsync(dev_A,host_A,sizeof(double)*height*width_perdevice,cudaMemcpyHostToDevice,stream1);
+        }
+        else{
+            cudaMalloc((void **)&dev_diag_1,sizeof(double) * minmn);
+            cudaMalloc((void **)&dev_A_1, sizeof(double) * height * width_perdevice * batch);
+            cudaMalloc((void **)&dev_V_1, sizeof(double) * width_perdevice * width_perdevice * batch);
+            cudaMalloc((void **)&dev_V1, sizeof(double) * width_perdevice * width_perdevice * batch);
+            cudaMalloc((void **)&dev_U_1, sizeof(double) * height * height * batch);
+            // cudaMalloc((void **)&dev_V0, sizeof(double) * width0 * width0 * batch);
+
+            cudaMalloc((void **)&dev_roundRobin_1, sizeof(int) * (2 * k - 1) * 2 * k);
+
+            cudaMalloc((void **)&dev_jointG_1, sizeof(double) * 2*k * 2*k * p*batch);
+            cudaMalloc((void **)&dev_Aij_1, sizeof(double) * height * 2*k * p*batch);
+
+            cudaMalloc((void **)&dev_AiAi_1, sizeof(double) * k * k * sliceNum * p1 * batch);
+            cudaMalloc((void **)&dev_AiAj_1, sizeof(double) * k * k * sliceNum * p1 * batch);
+            cudaMalloc((void **)&dev_AjAj_1, sizeof(double) * k * k * sliceNum * p1 * batch);
+            cudaMalloc((void **)&dev_pairsOfEVD_1, sizeof(int) * 2 * p1 * batch);
+            // cudaMalloc((void **)&dev_swap_data_1,sizeof(double)*p1*height*k);
+
+            host_allpass_1 = (unsigned *)malloc(sizeof(unsigned) * batch);
+            host_pass_1 = (unsigned *)malloc(sizeof(unsigned) * p1 * batch);
+            cudaMalloc((void **)&dev_allpass_1, sizeof(unsigned) * batch);
+            cudaMalloc((void **)&dev_pass_1, sizeof(unsigned) * p1 * batch);
+
+            cudaMalloc((void **)&dev_norm_1, sizeof(double) * 2 * p1 * batch);
+            cudaMalloc((void **)&dev_order_1, sizeof(unsigned int) * 2 * p1 * batch);
+            host_Fnorm_1 = (double *)malloc(sizeof(double) * batch);
+            cudaMalloc((void **)&dev_tempFnorm_1, sizeof(double) * 2 * p1 * batch);
+            cudaMalloc((void **)&dev_Fnorm_1, sizeof(double) * batch);
+            cudaMemcpyAsync(dev_A_1,host_A+height*width_perdevice,sizeof(double)*height*width_perdevice,cudaMemcpyHostToDevice,stream2);
+        }
+    }
 #pragma endregion
 
 // preset before svd  
 #pragma region
     cudaSetDevice(gpu0);
-    cudaMemset(dev_V, 0, sizeof(double) * width_perdevice * width_perdevice * batch);
-    cudaMemset(dev_U, 0, sizeof(double) * height * height * batch);
-    // cudaMemset(dev_V0, 0, sizeof(double) * width_perdevice * width_perdevice * batch);
-    cudaMemset(dev_pairsOfEVD, 0, sizeof(int) * 2 * p * batch); 
-    memset(host_pass, 0, sizeof(unsigned) * p * batch);
-    cudaMemset(dev_pass, 0, sizeof(unsigned) * p * batch);
+    
     int shape[3]={batch,height,width_perdevice};
     double* host_A1,* host_A2;
     host_A1 = (double*)malloc(sizeof(double)*width_perdevice*height);
     host_A2 = (double*)malloc(sizeof(double)*width_perdevice*height);
     double test_result[4] = {0, 1.0, 1.0, 1.0}; // 0:tag, 1:time
     test_result[0] = 2.0;
-    cudaStream_t stream1;
-    cudaStreamCreate(&stream1);
-    cudaSetDevice(gpu1);
-    cudaStream_t stream2;
-    cudaStreamCreate(&stream2);
-    cudaSetDevice(gpu0);
-    cudaMemcpy(dev_A,host_A,sizeof(double)*height*width_perdevice,cudaMemcpyHostToDevice);
-    cudaSetDevice(gpu1);
-    cudaMemcpy(dev_A_1,host_A+height*width_perdevice,sizeof(double)*height*width_perdevice,cudaMemcpyHostToDevice);
-    // cudaMemcpy(host_A2,dev_A_1,sizeof(double)*p1*k*height,cudaMemcpyDeviceToHost);
-    // printf("host_A1 %d\n",i);
-    // for(int j = 0;j < p1*k*height;++j){
-    //     printf("%lf ",host_A2[j]);
-    // }
-    // printf("\n");
-
-    // double* dev_test_A = (double*)malloc(sizeof(double)*2*p*k*height);
-    // cudaMemcpy(dev_test_A,host_A,sizeof(double)*2*p*k*height,cudaMemcpyHostToDevice);
-    // int shape1[3] = 
-    // our svd
+    // omp thread
 
     double* swap_data_1 = (double*)malloc(sizeof(double)*p*height*k);
     double* swap_data_2 = (double*)malloc(sizeof(double)*p*height*k);
-    clock_t start,end;
-    start = clock();
-    double t1=0,t2=0;
+    clock_t start1,end;
+    start1 = clock();
+    double t1=0,t2=0,t3=0;
     clock_t begin1,end1;
+    begin1 = clock();
     cudaSetDevice(gpu0);
     dim3 dimGrid0(1, 1, 1);
     dim3 dimBlock0(32, 32, 1);
-    generate_roundRobin_128<<<dimGrid0, dimBlock0,0,stream1>>>(dev_roundRobin, 2*k);
-    cudaSetDevice(gpu1);
-    generate_roundRobin_128<<<dimGrid0, dimBlock0,0,stream2>>>(dev_roundRobin_1, 2*k);
-    // int* host_round = (int*)malloc(sizeof(int)*(2*k-1)*2*k);
-    // cudaSetDevice(gpu0);
-    // cudaMemcpy(host_round,dev_roundRobin,sizeof(int)*2*k*(2*k-1),cudaMemcpyDeviceToHost);
-    // cudaSetDevice(gpu0);
-    // getRankNewNew<<<1, 1024,0,stream1>>>(2 * p);  //&1.3
-    // cudaSetDevice(gpu1);
-    // getRankNewNew<<<1, 1024,0,stream2>>>(2 * p1);  //&1.3
-    // for(int i = 0;i < 2*k-1;++i){
-    //     for(int j = 0;j < 2*k;++j){
-    //         printf("%d ",host_round[i*2*k+j]);
-    //     }
-    //     printf("\n");
-    // }
-    for(int i = 0;i < 4;++i){
-        begin1 = clock();
-        svd_large_matrix_1(gpu0,stream1,false,dev_A, shape, dev_diag, dev_U, dev_V,dev_V0, th, tw, dev_roundRobin,dev_jointG,dev_Aij,dev_AiAi,dev_AiAj,dev_AjAj,dev_pairsOfEVD,dev_allpass,dev_pass,dev_norm,dev_order,dev_tempFnorm,dev_Fnorm);
-        svd_large_matrix_1(gpu1,stream2,false,dev_A_1, shape, dev_diag_1, dev_U_1, dev_V_1,dev_V1, th, tw, dev_roundRobin_1,dev_jointG_1,dev_Aij_1,dev_AiAi_1,dev_AiAj_1,dev_AjAj_1,dev_pairsOfEVD_1,dev_allpass_1,dev_pass_1,dev_norm_1,dev_order_1,dev_tempFnorm_1,dev_Fnorm_1);
-        end1 = clock();
-        t1 += double(end1-begin1)/CLOCKS_PER_SEC;
-        // printf("time over \n");
-        begin1 = clock();
-        cudaSetDevice(gpu0);
-        cudaMemcpyAsync(swap_data_1,dev_A+p*k*height,sizeof(double)*p*k*height,cudaMemcpyDeviceToHost,stream1);
-        cudaSetDevice(gpu1);
-        cudaMemcpyAsync(swap_data_2,dev_A_1+p1*k*height,sizeof(double)*p1*k*height,cudaMemcpyDeviceToHost,stream2);
-        cudaStreamSynchronize(stream2);  // 等待 stream2 完
-        cudaSetDevice(gpu0);
-        cudaMemcpyAsync(dev_A+p*k*height,swap_data_2,sizeof(double)*p1*k*height,cudaMemcpyHostToDevice,stream1);
-        cudaStreamSynchronize(stream1);  // 等待 stream1 完
-        cudaSetDevice(gpu1);
-        cudaMemcpyAsync(dev_A_1+p1*k*height,swap_data_1,sizeof(double)*p*k*height,cudaMemcpyHostToDevice,stream2);
-
-        cudaStreamSynchronize(stream1);  // 等待 stream1 完
-        cudaStreamSynchronize(stream2);  // 等待 stream2 完
-        end1=clock();
-        t2 += (double)(end1-begin1)/CLOCKS_PER_SEC;
-
-        begin1 = clock();
-        svd_large_matrix_1(gpu0,stream1,false,dev_A, shape, dev_diag, dev_U, dev_V,dev_V0, th, tw, dev_roundRobin,dev_jointG,dev_Aij,dev_AiAi,dev_AiAj,dev_AjAj,dev_pairsOfEVD,dev_allpass,dev_pass,dev_norm,dev_order,dev_tempFnorm,dev_Fnorm);
-        svd_large_matrix_1(gpu1,stream2,false,dev_A_1, shape, dev_diag_1, dev_U_1, dev_V_1,dev_V1, th, tw, dev_roundRobin_1,dev_jointG_1,dev_Aij_1,dev_AiAi_1,dev_AiAj_1,dev_AjAj_1,dev_pairsOfEVD_1,dev_allpass_1,dev_pass_1,dev_norm_1,dev_order_1,dev_tempFnorm_1,dev_Fnorm_1);
-        end1 = clock();
-        t1 += double(end1-begin1)/CLOCKS_PER_SEC;
-
-        begin1 = clock();
-        cudaSetDevice(gpu0);
-        cudaMemcpyAsync(swap_data_1,dev_A+p*k*height,sizeof(double)*p*k*height,cudaMemcpyDeviceToHost,stream1);
-        cudaSetDevice(gpu1);
-        cudaMemcpyAsync(swap_data_2,dev_A_1,sizeof(double)*p1*k*height,cudaMemcpyDeviceToHost,stream2);
-        cudaStreamSynchronize(stream2);  // 等待 stream2 完
-        cudaSetDevice(gpu0);
-        cudaMemcpyAsync(dev_A+p*k*height,swap_data_2,sizeof(double)*p1*k*height,cudaMemcpyHostToDevice,stream1);
-        cudaStreamSynchronize(stream1);  // 等待 stream1 完
-        cudaSetDevice(gpu1);
-        cudaMemcpyAsync(dev_A_1,swap_data_1,sizeof(double)*p*k*height,cudaMemcpyHostToDevice,stream2);
-        cudaStreamSynchronize(stream1);  // 等待 stream1 完
-        cudaStreamSynchronize(stream2);  // 等待 stream2 完
-        end1 = clock();
-        t2 += (double)(end1-begin1)/CLOCKS_PER_SEC;
-
-        bool flag = i==3;
-        begin1 = clock();
-        svd_large_matrix_1(gpu0,stream1,flag,dev_A, shape, dev_diag, dev_U, dev_V,dev_V0, th, tw, dev_roundRobin,dev_jointG,dev_Aij,dev_AiAi,dev_AiAj,dev_AjAj,dev_pairsOfEVD,dev_allpass,dev_pass,dev_norm,dev_order,dev_tempFnorm,dev_Fnorm);
-        svd_large_matrix_1(gpu1,stream2,flag,dev_A_1, shape, dev_diag_1, dev_U_1, dev_V_1,dev_V1, th, tw, dev_roundRobin_1,dev_jointG_1,dev_Aij_1,dev_AiAi_1,dev_AiAj_1,dev_AjAj_1,dev_pairsOfEVD_1,dev_allpass_1,dev_pass_1,dev_norm_1,dev_order_1,dev_tempFnorm_1,dev_Fnorm_1);
-        end1 = clock();
-        t1 += (double)(end1-begin1)/CLOCKS_PER_SEC;
-
-        if(i != 3){
-            begin1 = clock();
-            cudaSetDevice(gpu0);
-            cudaMemcpyAsync(swap_data_1,dev_A+p*k*height,sizeof(double)*p*k*height,cudaMemcpyDeviceToHost,stream1);
-
-            cudaSetDevice(gpu1);
-            cudaMemcpyAsync(swap_data_2,dev_A_1+p1*k*height,sizeof(double)*p1*k*height,cudaMemcpyDeviceToHost,stream2);
-            cudaStreamSynchronize(stream2);  // 等待 stream2 完
-            
-            cudaSetDevice(gpu0);
-            cudaMemcpyAsync(dev_A+p*k*height,swap_data_2,sizeof(double)*p1*k*height,cudaMemcpyHostToDevice,stream1);
-
-            cudaStreamSynchronize(stream1);  // 等待 stream1 完
-
-            cudaSetDevice(gpu1);
-            cudaMemcpyAsync(dev_A_1+p1*k*height,swap_data_1,sizeof(double)*p*k*height,cudaMemcpyHostToDevice,stream2);
-            end1 = clock();
-            t2 += (double)(end1-begin1)/CLOCKS_PER_SEC;
-        }
-    }
-    end = clock();
-    printf("it costs %lf s\n",(double)(end-start)/CLOCKS_PER_SEC);
-    printf("compute time:%lf  memory access:%lf\n",t1,t2);
     
-    // cusolver svd
-    // cusolver_svd(dev_A, shape, dev_diag, dev_U, dev_V, test_result);
-    // double* host_U = (double*)malloc(sizeof(double)*height*height*batch);
-    // cudaMemcpy(host_U,dev_U,sizeof(double)*height*height*batch,cudaMemcpyDeviceToHost);
-    // FILE* file = fopen("dev_U.txt","w");
-    // for(int f = 0;f < height;++f){
-    //     for(int g=0;g<height;++g){
-    //         fprintf(file,"%lf ",host_U[f*height+g]);
-    //     }
-    //     fprintf(file,"\n");
-    // }
+    #pragma omp parallel
+    {
+        int gpuid = omp_get_thread_num();
+        cudaSetDevice(gpuid);
+        if (gpuid == 0)
+            generate_roundRobin_128<<<dimGrid0, dimBlock0,0,stream1>>>(dev_roundRobin, 2*k);
+        else
+            generate_roundRobin_128<<<dimGrid0, dimBlock0,0,stream2>>>(dev_roundRobin_1, 2*k);
+    }
+    // generate_roundRobin_128<<<dimGrid0, dimBlock0,0,stream1>>>(dev_roundRobin, 2*k);
+    // cudaSetDevice(gpu1);
+    // generate_roundRobin_128<<<dimGrid0, dimBlock0,0,stream2>>>(dev_roundRobin_1, 2*k);
+    // end1 = clock();
+    // t3 += (double)(end1-begin1)/CLOCKS_PER_SEC;
+    cudaEvent_t start, stop;
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
+    
+   
+    
+    for(int i = 0;i < 4;++i){        
+        #pragma omp parallel
+        {
+            int gpuid = omp_get_thread_num();
+            // printf("thread %d \n",gpuid);
+            cudaSetDevice(gpuid);
+            if(gpuid == 0){
+                if(i != 0)
+                    cudaStreamSynchronize(stream2);  // 等待 stream1 完
+                // printf("thread %d \n",gpuid);
+                svd_large_matrix_1(gpu0, stream1, false, dev_A, shape, dev_diag, dev_U, dev_V, dev_V0, 
+                    th, tw, dev_roundRobin, dev_jointG, dev_Aij, dev_AiAi, dev_AiAj, 
+                    dev_AjAj, dev_pairsOfEVD, dev_allpass, dev_pass, dev_norm, 
+                    dev_order, dev_tempFnorm, dev_Fnorm);
+                cudaMemcpyAsync(swap_data_1, dev_A + p * k * height, sizeof(double) * p * k * height, cudaMemcpyDeviceToHost, stream1);
+            }
+            else{
+                if(i != 0)
+                    cudaStreamSynchronize(stream1);
+                // printf("thread %d ",gpuid);
+                svd_large_matrix_1(gpu1, stream2, false, dev_A_1, shape, dev_diag_1, dev_U_1, dev_V_1, 
+                    dev_V1, th, tw, dev_roundRobin_1, dev_jointG_1, dev_Aij_1, 
+                    dev_AiAi_1, dev_AiAj_1, dev_AjAj_1, dev_pairsOfEVD_1, dev_allpass_1, 
+                    dev_pass_1, dev_norm_1, dev_order_1, dev_tempFnorm_1, dev_Fnorm_1);
+                cudaMemcpyAsync(swap_data_2, dev_A_1 + p1 * k * height, sizeof(double) * p1 * k * height, cudaMemcpyDeviceToHost, stream2);
+                // cudaStreamSynchronize(stream1);  // 等待 stream1 完
+                // cudaMemcpyAsync(dev_A_1 + p1 * k * height, swap_data_1, sizeof(double) * p * k * height, cudaMemcpyHostToDevice, stream2);
+            }
+            #pragma omp barrier  // **确保两个线程都完成了数据拷贝**
+            if (gpuid == 0) {
+                cudaMemcpyAsync(dev_A + p * k * height, swap_data_2, sizeof(double) * p1 * k * height, cudaMemcpyHostToDevice, stream1);
+            }
+            else {
+                cudaMemcpyAsync(dev_A_1 + p1 * k * height, swap_data_1, sizeof(double) * p * k * height, cudaMemcpyHostToDevice, stream2);
+            }
+        }
+        // printf dataswap
+        // for(int u = 0;u < 5;++u){
+        //     printf("%lf ",swap_data_1[u]);
+        // }
+        // printf("\n");
+        // for(int u = 0;u < 5;++u){
+        //     printf("%lf ",swap_data_2[u]);
+        // }
+        // printf("\n");
+
+        // printf("second \n");
+        // 第二轮 SVD 计算
+        #pragma omp parallel
+        {
+            int gpuid = omp_get_thread_num();
+            cudaSetDevice(gpuid);
+            if(gpuid == 0){ 
+                cudaStreamSynchronize(stream2);  // 等待 stream2 完
+                // printf("thread %d ",gpuid);
+                svd_large_matrix_1(gpu0, stream1, false, dev_A, shape, dev_diag, dev_U, dev_V, dev_V0, 
+                    th, tw, dev_roundRobin, dev_jointG, dev_Aij, dev_AiAi, dev_AiAj, 
+                    dev_AjAj, dev_pairsOfEVD, dev_allpass, dev_pass, dev_norm, 
+                    dev_order, dev_tempFnorm, dev_Fnorm);
+                cudaMemcpyAsync(swap_data_1, dev_A + p * k * height, sizeof(double) * p * k * height, cudaMemcpyDeviceToHost, stream1);
+                // cudaStreamSynchronize(stream2);
+            }
+            else{            
+                cudaStreamSynchronize(stream1);  // 等待 stream1 完
+                // printf("thread %d ",gpuid);
+                svd_large_matrix_1(gpu1, stream2, false, dev_A_1, shape, dev_diag_1, dev_U_1, dev_V_1, 
+                    dev_V1, th, tw, dev_roundRobin_1, dev_jointG_1, dev_Aij_1, 
+                    dev_AiAi_1, dev_AiAj_1, dev_AjAj_1, dev_pairsOfEVD_1, dev_allpass_1, 
+                    dev_pass_1, dev_norm_1, dev_order_1, dev_tempFnorm_1, dev_Fnorm_1);
+                cudaMemcpyAsync(swap_data_2, dev_A_1, sizeof(double) * p1 * k * height, cudaMemcpyDeviceToHost, stream2);
+                // cudaStreamSynchronize(stream1);
+                
+            }
+
+            #pragma omp barrier  // **确保两个线程都完成了数据拷贝**
+
+            if (gpuid == 0) {
+                cudaMemcpyAsync(dev_A + p * k * height, swap_data_2, sizeof(double) * p1 * k * height, cudaMemcpyHostToDevice, stream1);
+            }
+            else {
+                cudaMemcpyAsync(dev_A_1, swap_data_1, sizeof(double) * p * k * height, cudaMemcpyHostToDevice, stream2);
+            }
+        }
+
+
+        bool flag = (i == 3);
+
+        // printf("third\n");
+        // 第三轮 SVD 计算
+        cudaEventRecord(start, stream1);
+        #pragma omp parallel
+        {
+            int gpuid = omp_get_thread_num();
+            cudaSetDevice(gpuid);
+            if(gpuid == 0){
+                cudaStreamSynchronize(stream2);
+                // printf("thread %d ",gpuid);
+                svd_large_matrix_1(gpu0, stream1, flag, dev_A, shape, dev_diag, dev_U, dev_V, dev_V0, 
+                    th, tw, dev_roundRobin, dev_jointG, dev_Aij, dev_AiAi, dev_AiAj, 
+                    dev_AjAj, dev_pairsOfEVD, dev_allpass, dev_pass, dev_norm, 
+                    dev_order, dev_tempFnorm, dev_Fnorm);
+                // 只有 i != 3 时进行数据交换
+                if(i != 3){
+                    cudaMemcpyAsync(swap_data_1, dev_A + p * k * height, sizeof(double) * p * k * height, cudaMemcpyDeviceToHost, stream1);
+                }  
+            }
+            else{
+                cudaStreamSynchronize(stream1);
+                svd_large_matrix_1(gpu1, stream2, flag, dev_A_1, shape, dev_diag_1, dev_U_1, dev_V_1, 
+                    dev_V1, th, tw, dev_roundRobin_1, dev_jointG_1, dev_Aij_1, 
+                    dev_AiAi_1, dev_AiAj_1, dev_AjAj_1, dev_pairsOfEVD_1, dev_allpass_1, 
+                    dev_pass_1, dev_norm_1, dev_order_1, dev_tempFnorm_1, dev_Fnorm_1);
+                // 只有 i != 3 时进行数据交换
+                if(i != 3){
+                    cudaMemcpyAsync(swap_data_2, dev_A_1 + p1 * k * height, sizeof(double) * p1 * k * height, cudaMemcpyDeviceToHost, stream2);     
+                }  
+            }
+           if(i != 3){
+                #pragma omp barrier
+                if (gpuid == 0) {
+                    cudaMemcpyAsync(dev_A + p * k * height, swap_data_2, sizeof(double) * p1 * k * height, cudaMemcpyHostToDevice, stream1);
+                }
+                else {
+                    cudaMemcpyAsync(dev_A_1 + p1 * k * height, swap_data_1, sizeof(double) * p * k * height, cudaMemcpyHostToDevice, stream2);
+                }
+            }  
+        } 
+    }
+    end1 = clock();
+    printf("it costs %lfs",(double)(end1-begin1)/CLOCKS_PER_SEC);
+    
     double* host_diag = (double*)malloc(sizeof(double)*minmn*batch);
     double* host_diag1 = (double*)malloc(sizeof(double)*minmn*batch);
     cudaSetDevice(gpu0);
