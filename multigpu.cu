@@ -3,6 +3,7 @@
 #include <unistd.h>
 #include <chrono>
 #include<omp.h>
+#include <nvToolsExt.h>
 
 #include "matrix_generate.hpp"
 #include "large_matrix_svd.cu"
@@ -17,8 +18,8 @@ using namespace std::chrono;
 void test17(){
     int gpu0=0,gpu1=1;
     int batch = 1;
-    int height = 4096;
-    int width = 4096;
+    int height = 8192;
+    int width = 8192;
     int th=0, tw=0;
     // int shape[3] = {batch, height, width};
     int minmn = height > width/2 ? width/2 : height;
@@ -280,7 +281,11 @@ void test17(){
     
    
     
-    for(int i = 0;i < 4;++i){        
+    double test_tag=0;
+    int i = 0;
+    while(test_tag < 1){    
+        test_tag=4;    
+        nvtxMarkA("Start SVD Computation"); // 这里会在 Nsight Systems 里显示一个标记
         #pragma omp parallel
         {
             int gpuid = omp_get_thread_num();
@@ -293,7 +298,7 @@ void test17(){
                 svd_large_matrix_1(gpu0, stream1, false, dev_A, shape, dev_diag, dev_U, dev_V, dev_V0, 
                     th, tw, dev_roundRobin, dev_jointG, dev_Aij, dev_AiAi, dev_AiAj, 
                     dev_AjAj, dev_pairsOfEVD, dev_allpass, dev_pass, dev_norm, 
-                    dev_order, dev_tempFnorm, dev_Fnorm);
+                    dev_order, dev_tempFnorm, dev_Fnorm,&test_tag);
                 cudaMemcpyAsync(swap_data_1, dev_A + p * k * height, sizeof(double) * p * k * height, cudaMemcpyDeviceToHost, stream1);
             }
             else{
@@ -303,11 +308,12 @@ void test17(){
                 svd_large_matrix_1(gpu1, stream2, false, dev_A_1, shape, dev_diag_1, dev_U_1, dev_V_1, 
                     dev_V1, th, tw, dev_roundRobin_1, dev_jointG_1, dev_Aij_1, 
                     dev_AiAi_1, dev_AiAj_1, dev_AjAj_1, dev_pairsOfEVD_1, dev_allpass_1, 
-                    dev_pass_1, dev_norm_1, dev_order_1, dev_tempFnorm_1, dev_Fnorm_1);
+                    dev_pass_1, dev_norm_1, dev_order_1, dev_tempFnorm_1, dev_Fnorm_1,&test_tag);
                 cudaMemcpyAsync(swap_data_2, dev_A_1 + p1 * k * height, sizeof(double) * p1 * k * height, cudaMemcpyDeviceToHost, stream2);
                 // cudaStreamSynchronize(stream1);  // 等待 stream1 完
                 // cudaMemcpyAsync(dev_A_1 + p1 * k * height, swap_data_1, sizeof(double) * p * k * height, cudaMemcpyHostToDevice, stream2);
             }
+            cudaSetDevice(gpuid);
             #pragma omp barrier  // **确保两个线程都完成了数据拷贝**
             if (gpuid == 0) {
                 cudaMemcpyAsync(dev_A + p * k * height, swap_data_2, sizeof(double) * p1 * k * height, cudaMemcpyHostToDevice, stream1);
@@ -316,17 +322,8 @@ void test17(){
                 cudaMemcpyAsync(dev_A_1 + p1 * k * height, swap_data_1, sizeof(double) * p * k * height, cudaMemcpyHostToDevice, stream2);
             }
         }
-        // printf dataswap
-        // for(int u = 0;u < 5;++u){
-        //     printf("%lf ",swap_data_1[u]);
-        // }
-        // printf("\n");
-        // for(int u = 0;u < 5;++u){
-        //     printf("%lf ",swap_data_2[u]);
-        // }
-        // printf("\n");
+        nvtxMarkA("End SVD Computation");
 
-        // printf("second \n");
         // 第二轮 SVD 计算
         #pragma omp parallel
         {
@@ -338,7 +335,7 @@ void test17(){
                 svd_large_matrix_1(gpu0, stream1, false, dev_A, shape, dev_diag, dev_U, dev_V, dev_V0, 
                     th, tw, dev_roundRobin, dev_jointG, dev_Aij, dev_AiAi, dev_AiAj, 
                     dev_AjAj, dev_pairsOfEVD, dev_allpass, dev_pass, dev_norm, 
-                    dev_order, dev_tempFnorm, dev_Fnorm);
+                    dev_order, dev_tempFnorm, dev_Fnorm,&test_tag);
                 cudaMemcpyAsync(swap_data_1, dev_A + p * k * height, sizeof(double) * p * k * height, cudaMemcpyDeviceToHost, stream1);
                 // cudaStreamSynchronize(stream2);
             }
@@ -348,7 +345,7 @@ void test17(){
                 svd_large_matrix_1(gpu1, stream2, false, dev_A_1, shape, dev_diag_1, dev_U_1, dev_V_1, 
                     dev_V1, th, tw, dev_roundRobin_1, dev_jointG_1, dev_Aij_1, 
                     dev_AiAi_1, dev_AiAj_1, dev_AjAj_1, dev_pairsOfEVD_1, dev_allpass_1, 
-                    dev_pass_1, dev_norm_1, dev_order_1, dev_tempFnorm_1, dev_Fnorm_1);
+                    dev_pass_1, dev_norm_1, dev_order_1, dev_tempFnorm_1, dev_Fnorm_1,&test_tag);
                 cudaMemcpyAsync(swap_data_2, dev_A_1, sizeof(double) * p1 * k * height, cudaMemcpyDeviceToHost, stream2);
                 // cudaStreamSynchronize(stream1);
                 
@@ -365,7 +362,7 @@ void test17(){
         }
 
 
-        bool flag = (i == 3);
+        bool flag = false;
 
         // printf("third\n");
         // 第三轮 SVD 计算
@@ -380,7 +377,7 @@ void test17(){
                 svd_large_matrix_1(gpu0, stream1, flag, dev_A, shape, dev_diag, dev_U, dev_V, dev_V0, 
                     th, tw, dev_roundRobin, dev_jointG, dev_Aij, dev_AiAi, dev_AiAj, 
                     dev_AjAj, dev_pairsOfEVD, dev_allpass, dev_pass, dev_norm, 
-                    dev_order, dev_tempFnorm, dev_Fnorm);
+                    dev_order, dev_tempFnorm, dev_Fnorm,&test_tag);
                 // 只有 i != 3 时进行数据交换
                 if(i != 3){
                     cudaMemcpyAsync(swap_data_1, dev_A + p * k * height, sizeof(double) * p * k * height, cudaMemcpyDeviceToHost, stream1);
@@ -391,7 +388,7 @@ void test17(){
                 svd_large_matrix_1(gpu1, stream2, flag, dev_A_1, shape, dev_diag_1, dev_U_1, dev_V_1, 
                     dev_V1, th, tw, dev_roundRobin_1, dev_jointG_1, dev_Aij_1, 
                     dev_AiAi_1, dev_AiAj_1, dev_AjAj_1, dev_pairsOfEVD_1, dev_allpass_1, 
-                    dev_pass_1, dev_norm_1, dev_order_1, dev_tempFnorm_1, dev_Fnorm_1);
+                    dev_pass_1, dev_norm_1, dev_order_1, dev_tempFnorm_1, dev_Fnorm_1,&test_tag);
                 // 只有 i != 3 时进行数据交换
                 if(i != 3){
                     cudaMemcpyAsync(swap_data_2, dev_A_1 + p1 * k * height, sizeof(double) * p1 * k * height, cudaMemcpyDeviceToHost, stream2);     
@@ -406,7 +403,21 @@ void test17(){
                     cudaMemcpyAsync(dev_A_1 + p1 * k * height, swap_data_1, sizeof(double) * p * k * height, cudaMemcpyHostToDevice, stream2);
                 }
             }  
-        } 
+        }
+        ++i; 
+    }
+    #pragma omp parallel
+    {
+        dim3 dimGrid10(2 * p, batch, 1);
+        dim3 dimBlock10(32, k, 1);
+        int gpuid = omp_get_thread_num();
+        cudaSetDevice(gpuid);
+        if(gpuid == 0){
+            getUDV<<<dimGrid10, dimBlock10,0,stream1>>>(dev_A, dev_U, dev_V, dev_V0, height, width, height, width, p, height/32, dev_diag, width, k);  //&1.3
+        }
+        else{
+            getUDV<<<dimGrid10, dimBlock10,0,stream2>>>(dev_A_1, dev_U_1, dev_V_1, dev_V1, height, width, height, width, p, height/32, dev_diag_1, width, k);  //&1.3
+        }
     }
     end1 = clock();
     printf("it costs %lfs",(double)(end1-begin1)/CLOCKS_PER_SEC);

@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <chrono>
+#include <nvToolsExt.h>
 
 #include "matrix_generate.hpp"
 #include "large_matrix_svd.cu"
@@ -16,8 +17,8 @@ using namespace std::chrono;
 void test17(){
     int gpu0 = 0,gpu1=1;
     int batch = 1;
-    int height = 64;
-    int width = 64;
+    int height = 9216;
+    int width = 9216;
     int th=0, tw=0;
     // int shape[3] = {batch, height, width};
     int minmn = height > width ? width : height;
@@ -232,18 +233,35 @@ void test17(){
     // cudaMemcpy(dev_A_1,host_A+height*width_perdevice,sizeof(double)*height*width_perdevice,cudaMemcpyHostToDevice);
     // cudaMemcpy(host_A2,dev_A_1,sizeof(double)*p1*k*height,cudaMemcpyDeviceToHost);
     // // printf("host_A1 %d\n",i);
-    for(int j = 0;j < 2*p1*k*height;++j){
-        printf("%lf ",host_A[j]);
-    }
+    // for(int j = 0;j < 2*p1*k*height;++j){
+    //     printf("%lf ",host_A[j]);
+    // }
     // printf("\n");
 
     // double* dev_test_A = (double*)malloc(sizeof(double)*2*p*k*height);
     // cudaMemcpy(dev_test_A,host_A,sizeof(double)*2*p*k*height,cudaMemcpyHostToDevice);
     // int shape1[3] = 
     // our svd
-    svd_large_matrix_1(gpu0,true,dev_A, shape, dev_diag, dev_U, dev_V,dev_V0, th, tw, dev_roundRobin,dev_jointG,dev_Aij,dev_AiAi,dev_AiAj,dev_AjAj,dev_pairsOfEVD,dev_allpass,dev_pass,dev_norm,dev_order,dev_tempFnorm,dev_Fnorm);
-    
-    
+    cudaStream_t stream;
+    cudaStreamCreate(&stream);
+    cudaEvent_t start, stop;
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
+    clock_t begin = clock();
+    dim3 dimGrid0(1, 1, 1);
+    dim3 dimBlock0(32, 32, 1);
+    cudaEventRecord(start, stream);  // 在 stream2 记录开始时间
+    nvtxMarkA("Start SVD Computation"); // 这里会在 Nsight Systems 里显示一个标记
+    generate_roundRobin_128<<<dimGrid0, dimBlock0,0,stream>>>(dev_roundRobin, 2*k);
+    svd_large_matrix_1(gpu0,stream,true,dev_A, shape, dev_diag, dev_U, dev_V,dev_V0, th, tw, dev_roundRobin,dev_jointG,dev_Aij,dev_AiAi,dev_AiAj,dev_AjAj,dev_pairsOfEVD,dev_allpass,dev_pass,dev_norm,dev_order,dev_tempFnorm,dev_Fnorm);
+    cudaEventRecord(stop, stream);  // 在 stream2 记录结束时间
+
+    cudaEventSynchronize(stop);  // 确保 stop 事件被正确记录
+    float milliseconds = 0;
+    cudaEventElapsedTime(&milliseconds, start, stop);
+    nvtxMarkA("End SVD Computation");
+    clock_t end = clock();
+    printf("cost:   %lf\n",milliseconds/1000);
     // cusolver svd
     // cusolver_svd(dev_A, shape, dev_diag, dev_U, dev_V, test_result);
     double* host_U = (double*)malloc(sizeof(double)*height*height*batch);

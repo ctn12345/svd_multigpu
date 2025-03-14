@@ -146,22 +146,7 @@ void svd_large_matrix_1(int gpu,cudaStream_t& stream,bool isfinal,double* dev_A,
         // for (int i = 0; i < 1; i++)
         {
 #pragma region // svd one-round
-
-            // dim3 dimGrid_fG(p, batch);
-            // match_Aij<<<dimGrid_fG, 256>>>(dev_A, height, width, i, dev_order, dev_pairsOfEVD, dev_Aij, p, k);
-            // cudaDeviceSynchronize();
-
-            // cublasDgemmBatched(handle, transa, transb, 2*k, 2*k, height, &alpha, d_Aij_array, height, d_Aij_array, height, &beta, d_G_array, 2*k, p*batch);
-            // cudaDeviceSynchronize();
-
-            // converge_verify<<<dimGrid_fG, 256>>>(dev_jointG, 2*k, dev_Fnorm, dev_pass, p, k, i);
-            // cudaDeviceSynchronize();
-
-            // mysvd_batched_even1<<<p*batch, 16 * k>>>(dev_Aij, 2*k, 2*k, dev_Aij, dev_V, dev_roundRobin);
-            // cudaDeviceSynchronize();
-
-            // dim3 dimGrid12(p, batch);
-            // update_AV<<<dimGrid12, 64>>>(dev_A, dev_V, dev_pairsOfEVD, p, height, width, k, dev_Aij);    
+   
             if(k <= 24){
                 // major algorithm (other branches are just for test)
                 dim3 dimGrid77(sliceNum, p, batch); // 2×2×100个block，每个block 256线程
@@ -187,13 +172,16 @@ void svd_large_matrix_1(int gpu,cudaStream_t& stream,bool isfinal,double* dev_A,
         // printf("ti si s\n");
         // printf("sweep %d :completed.\n", sweep);
         sweep++;
-
-        if(test_tag != nullptr && test_tag[0] == 10.0){
-            continue_flag = sweep < maxsweep;
+        if (test_tag != nullptr && sweep == 11){
+            *test_tag = 0;
         }
-        else{
-            continue_flag = (!ifallpass(host_allpass, batch, p) && sweep<maxsweep);
-        }
+        // if(test_tag != nullptr && test_tag[0] == 10.0){
+        //     continue_flag = sweep < maxsweep;
+        // }
+        // else{
+            
+        // }
+        continue_flag = (!ifallpass(host_allpass, batch, p) && sweep<maxsweep);
     }
     cudaDeviceSynchronize();
     if(isfinal){
@@ -204,21 +192,9 @@ void svd_large_matrix_1(int gpu,cudaStream_t& stream,bool isfinal,double* dev_A,
     }
     end = clock();
     double our_time = (double)(end - start) / CLOCKS_PER_SEC;
+    printf("the time cnt %d \n",sweep);
     // printf("sweep:%d, rotate count:%d, time:%lf\n",sweep, sweep*(2*p - 1), our_time);
-    if(test_tag != nullptr){
-        if(test_tag[0] == 4.0){
-            test_tag[3] = sweep;
-        }
-        else if(test_tag[0] == 9.0){
-            test_tag[2] = sweep;
-            // printf("%e  %.4lf  %d\n", tolerance, our_time, sweep);
-        }
-        test_tag[1] = our_time;
-        if(test_tag[0] == 11.0){
-            test_tag[1] = sweep;
-            test_tag[2] = 2*p - 1;
-        }
-    }
+
     // printf("func end \n");
 // free
 // #pragma region

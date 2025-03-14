@@ -13,12 +13,13 @@ def perform_svd(matrix):
 # 主函数
 if __name__ == "__main__":
     # 文件路径
-    file_path = "./data/generated_matrixes/A_h4096_w4096.txt"
+    size_1 = 4096
+    file_path = "./data/generated_matrixes/A_h"+str(size_1)+"_w"+str(size_1)+".txt"
     
     # 读取矩阵
     matrix = read_matrix_from_file(file_path)
     print(matrix)
-    matrix = matrix.reshape((4096,4096))
+    matrix = matrix.reshape((size_1,size_1))
     U, S, Vt = perform_svd(matrix)
     jointG = matrix @ Vt.T
     np.savetxt('jointG.txt', U, fmt='%f')

@@ -3,7 +3,7 @@
 #include <unistd.h>
 #include <chrono>
 #include<omp.h>
-
+#include <nvToolsExt.h>
 #include "matrix_generate.hpp"
 #include "large_matrix_svd.cu"
 #include "small_matrix_svd.cu"
@@ -17,8 +17,8 @@ using namespace std::chrono;
 void test17(){
     int gpu0=0,gpu1=1;
     int batch = 1;
-    int height = 4096;
-    int width = 4096;
+    int height = 9216;
+    int width = 9216;
     int th=0, tw=0;
     // int shape[3] = {batch, height, width};
     int minmn = height > width/2 ? width/2 : height;
@@ -42,17 +42,6 @@ void test17(){
 
     fclose(A_fp);
 
-    // steady_clock::time_point t1 = steady_clock::now();
-    
-    // double *dev_A;
-    // cudaMalloc((void **)&dev_A, sizeof(double) * height * width * batch);
-    // for(int i=0; i<batch; i++){
-    //     cudaMemcpy(dev_A + height*width*i, host_A, sizeof(double) * height * width, cudaMemcpyHostToDevice);
-    // }
-    // double *dev_U, *dev_V, *dev_diag;
-    // cudaMalloc((void **)&dev_diag, sizeof(double) * minmn * batch);
-    // cudaMalloc((void **)&dev_U, sizeof(double) * height * height * batch);
-    // cudaMalloc((void **)&dev_V, sizeof(double) * width * width * batch);
     tw = 32;
     th = 32;
     int k = tw/2;
@@ -242,7 +231,7 @@ void test17(){
     cudaSetDevice(gpu1);
     cudaMemcpyAsync(dev_A_1,host_A+height*width_perdevice,sizeof(double)*height*width_perdevice,cudaMemcpyHostToDevice,stream2);
     // cudaMemcpy(host_A2,dev_A_1,sizeof(double)*p1*k*height,cudaMemcpyDeviceToHost);
-    // printf("host_A1 %d\n",i);
+    // printf("host_A1 %d\n",1);
     // for(int j = 0;j < p1*k*height;++j){
     //     printf("%lf ",host_A2[j]);
     // }
@@ -268,16 +257,29 @@ void test17(){
     generate_roundRobin_128<<<dimGrid0, dimBlock0,0,stream2>>>(dev_roundRobin_1, 2*k);
     end1 = clock();
     t3 += (double)(end1-begin1)/CLOCKS_PER_SEC;
+    cudaSetDevice(gpu1);
     cudaEvent_t start, stop;
     cudaEventCreate(&start);
     cudaEventCreate(&stop);
+    cudaSetDevice(gpu0);
+    cudaEvent_t start_st2, stop_st2; 
+    cudaEventCreate(&start_st2);
+    cudaEventCreate(&stop_st2);
     omp_set_num_threads(2);
-    cudaStreamSynchronize(stream1);
-    cudaStreamSynchronize(stream2);  // 等待 stream1 完
-    for(int i = 0;i < 4;++i){        
+    // cudaStreamSynchronize(stream1);
+    // cudaStreamSynchronize(stream2);  // 等待 stream1 完
+    double test_tag=0;
+    float totalTime = 0;
+    float totalTime_st2 = 0;
+    float total_time = 0;
+    while(test_tag < 1){        
         float milliseconds = 0.0f;
         // 记录 SVD 计算时间
-        cudaEventRecord(start, stream1);
+        test_tag=4;
+        // clock_t y = clock();
+        cudaEventRecord(start,stream2);
+        cudaEventRecord(start_st2,stream1);
+        nvtxMarkA("Start SVD Computation1"); // 这里会在 Nsight Systems 里显示一个标记
         #pragma omp parallel
         {
             int gpuid = omp_get_thread_num();
@@ -286,24 +288,25 @@ void test17(){
                 svd_large_matrix_1(gpu0, stream1, false, dev_A, shape, dev_diag, dev_U, dev_V, dev_V0, 
                     th, tw, dev_roundRobin, dev_jointG, dev_Aij, dev_AiAi, dev_AiAj, 
                     dev_AjAj, dev_pairsOfEVD, dev_allpass, dev_pass, dev_norm, 
-                    dev_order, dev_tempFnorm, dev_Fnorm);
+                    dev_order, dev_tempFnorm, dev_Fnorm,&test_tag);
             }
             else{
                 printf("enter thread1 %d \n",gpuid);
                 svd_large_matrix_1(gpu1, stream2, false, dev_A_1, shape, dev_diag_1, dev_U_1, dev_V_1, 
                     dev_V1, th, tw, dev_roundRobin_1, dev_jointG_1, dev_Aij_1, 
                     dev_AiAi_1, dev_AiAj_1, dev_AjAj_1, dev_pairsOfEVD_1, dev_allpass_1, 
-                    dev_pass_1, dev_norm_1, dev_order_1, dev_tempFnorm_1, dev_Fnorm_1);
+                    dev_pass_1, dev_norm_1, dev_order_1, dev_tempFnorm_1, dev_Fnorm_1,&test_tag);
             }
         }
+        nvtxMarkA("End SVD Computation1");
+        // clock_t z = clock();
+        // printf("the time s %lf \n",(double)(z-y)/CLOCKS_PER_SEC);
+        
         // cudaSetDevice(gpu0);
+        // nvtxMarkA("first period start"); // 这里会在 Nsight Systems 里显示一个标记
         cudaSetDevice(gpu0);
         cudaStreamSynchronize(stream1);  // 等待 stream1 完
-        // cudaMemcpy(host_A1,dev_A+ p * k * height,sizeof(double)*p*k*height,cudaMemcpyDeviceToHost);
-        // for(int y = 0;y < 5;++y){
-        //     printf("%lf ",host_A1[y]);
-        // }
-        // printf("\n");
+        // cudaMemcpy(host_A1,dev_A_1+ p * k * height,sizeof(double)*p*k*height,cudaMemcpyDeviceToHost);
         cudaMemcpyAsync(swap_data_1, dev_A + p * k * height, sizeof(double) * p * k * height, cudaMemcpyDeviceToHost, stream1);
 
         cudaSetDevice(gpu1);
@@ -315,20 +318,23 @@ void test17(){
         
         cudaMemcpyAsync(dev_A + p * k * height, swap_data_2, sizeof(double) * p1 * k * height, cudaMemcpyHostToDevice, stream1);
         cudaStreamSynchronize(stream1);  // 等待 stream1 完
-        // for(int y = 0;y < 5;++y){
-        //     printf("%lf ",swap_data_1[y]);
-        // }
+
         cudaSetDevice(gpu1);
         cudaMemcpyAsync(dev_A_1 + p1 * k * height, swap_data_1, sizeof(double) * p * k * height, cudaMemcpyHostToDevice, stream2);
         cudaStreamSynchronize(stream2);  // 等待 stream2 完
 
-        cudaEventRecord(stop, stream1);
-        cudaEventSynchronize(stop);
-        cudaEventElapsedTime(&milliseconds, start, stop);
-        t2 += milliseconds / 1000.0;  // 转换为秒
+        // for(int y = 0;y < 5;++y){
+        //     printf("%lf ",swap_data_1[y]);
+        // }
+        // printf("\n");
 
+        // for(int y=0;y < 5;++y){
+        //     printf("%lf ",swap_data_2[y]);
+        // }
+        // printf("\n");
+        // nvtxMarkA("first period finish"); // 这里会在 Nsight Systems 里显示一个标记
         // 第二轮 SVD 计算
-        cudaEventRecord(start, stream1);
+        nvtxMarkA("Start SVD Computation2"); // 这里会在 Nsight Systems 里显示一个标记
         #pragma omp parallel
         {
             int gpuid = omp_get_thread_num();
@@ -336,22 +342,18 @@ void test17(){
                 svd_large_matrix_1(gpu0, stream1, false, dev_A, shape, dev_diag, dev_U, dev_V, dev_V0, 
                     th, tw, dev_roundRobin, dev_jointG, dev_Aij, dev_AiAi, dev_AiAj, 
                     dev_AjAj, dev_pairsOfEVD, dev_allpass, dev_pass, dev_norm, 
-                    dev_order, dev_tempFnorm, dev_Fnorm);
+                    dev_order, dev_tempFnorm, dev_Fnorm,&test_tag);
             }
             else{
                 svd_large_matrix_1(gpu1, stream2, false, dev_A_1, shape, dev_diag_1, dev_U_1, dev_V_1, 
                     dev_V1, th, tw, dev_roundRobin_1, dev_jointG_1, dev_Aij_1, 
                     dev_AiAi_1, dev_AiAj_1, dev_AjAj_1, dev_pairsOfEVD_1, dev_allpass_1, 
-                    dev_pass_1, dev_norm_1, dev_order_1, dev_tempFnorm_1, dev_Fnorm_1);
+                    dev_pass_1, dev_norm_1, dev_order_1, dev_tempFnorm_1, dev_Fnorm_1,&test_tag);
             }
         }
-        // cudaEventRecord(stop, stream1);
-        // cudaEventSynchronize(stop);
-        // cudaEventElapsedTime(&milliseconds, start, stop);
-        // t1 += milliseconds / 1000.0;  // 转换为秒
+        nvtxMarkA("End SVD Computation2");
 
         // 交换数据
-        cudaEventRecord(start, stream1);
         cudaSetDevice(gpu0);
         cudaMemcpyAsync(swap_data_1, dev_A + p * k * height, sizeof(double) * p * k * height, cudaMemcpyDeviceToHost, stream1);
 
@@ -367,15 +369,12 @@ void test17(){
         cudaMemcpyAsync(dev_A_1, swap_data_1, sizeof(double) * p * k * height, cudaMemcpyHostToDevice, stream2);
         cudaStreamSynchronize(stream2);
 
-        cudaEventRecord(stop, stream1);
-        cudaEventSynchronize(stop);
-        cudaEventElapsedTime(&milliseconds, start, stop);
         t2 += milliseconds / 1000.0;  // 转换为秒
 
-        bool flag = (i == 3);
+        bool flag = false;
 
         // 第三轮 SVD 计算
-        cudaEventRecord(start, stream1);
+        nvtxMarkA("Start SVD Computation3"); // 这里会在 Nsight Systems 里显示一个标记
         #pragma omp parallel
         {
             int gpuid = omp_get_thread_num();
@@ -383,23 +382,18 @@ void test17(){
                 svd_large_matrix_1(gpu0, stream1, flag, dev_A, shape, dev_diag, dev_U, dev_V, dev_V0, 
                     th, tw, dev_roundRobin, dev_jointG, dev_Aij, dev_AiAi, dev_AiAj, 
                     dev_AjAj, dev_pairsOfEVD, dev_allpass, dev_pass, dev_norm, 
-                    dev_order, dev_tempFnorm, dev_Fnorm);
+                    dev_order, dev_tempFnorm, dev_Fnorm,&test_tag);
             }
             else{
                 svd_large_matrix_1(gpu1, stream2, flag, dev_A_1, shape, dev_diag_1, dev_U_1, dev_V_1, 
                     dev_V1, th, tw, dev_roundRobin_1, dev_jointG_1, dev_Aij_1, 
                     dev_AiAi_1, dev_AiAj_1, dev_AjAj_1, dev_pairsOfEVD_1, dev_allpass_1, 
-                    dev_pass_1, dev_norm_1, dev_order_1, dev_tempFnorm_1, dev_Fnorm_1);
+                    dev_pass_1, dev_norm_1, dev_order_1, dev_tempFnorm_1, dev_Fnorm_1,&test_tag);
             }
         }
-        cudaEventRecord(stop, stream1);
-        cudaEventSynchronize(stop);
-        cudaEventElapsedTime(&milliseconds, start, stop);
-        t1 += milliseconds / 1000.0;  // 转换为秒
-
+        nvtxMarkA("End SVD Computation3");
         // 只有 i != 3 时进行数据交换
-        if (i != 3) {
-            cudaEventRecord(start, stream1);
+        if (test_tag < 1) {
             cudaSetDevice(gpu0);
             cudaMemcpyAsync(swap_data_1, dev_A + p * k * height, sizeof(double) * p * k * height, cudaMemcpyDeviceToHost, stream1);
 
@@ -414,17 +408,46 @@ void test17(){
             cudaSetDevice(gpu1);
             cudaMemcpyAsync(dev_A_1 + p1 * k * height, swap_data_1, sizeof(double) * p * k * height, cudaMemcpyHostToDevice, stream2);
             cudaStreamSynchronize(stream2);
-
-            cudaEventRecord(stop, stream1);
-            cudaEventSynchronize(stop);
-            cudaEventElapsedTime(&milliseconds, start, stop);
-            t2 += milliseconds / 1000.0;  // 转换为秒
             }
+        cudaSetDevice(gpu1);
+        cudaEventRecord(stop,stream2);
+        cudaEventSynchronize(stop);  // 等待 stop 事件完成
+        cudaSetDevice(gpu0);
+        cudaEventRecord(stop_st2,stream1);
+        cudaEventSynchronize(stop_st2);  // 等待 stop 事件完成
+        cudaEventElapsedTime(&totalTime, start, stop);
+        cudaEventElapsedTime(&totalTime_st2, start_st2, stop_st2);
+        total_time += max(totalTime,totalTime_st2)/1000;
     }
-    cudaEventDestroy(start);
-    cudaEventDestroy(stop);
+    #pragma omp parallel
+    {
+        dim3 dimGrid10(2 * p, batch, 1);
+        dim3 dimBlock10(32, k, 1);
+        int gpuid = omp_get_thread_num();
+        cudaSetDevice(gpuid);
+        if(gpuid == 0){
+            getUDV<<<dimGrid10, dimBlock10,0,stream1>>>(dev_A, dev_U, dev_V, dev_V0, height, width, height, width, p, height/32, dev_diag, width, k);  //&1.3
+        }
+        else{
+            getUDV<<<dimGrid10, dimBlock10,0,stream2>>>(dev_A_1, dev_U_1, dev_V_1, dev_V1, height, width, height, width, p, height/32, dev_diag_1, width, k);  //&1.3
+        }
+    }
+    
+    // cudaDeviceSynchronize();  // 确保所有 Kernel 执行完毕
+    cudaStreamSynchronize(stream1);
+    cudaStreamSynchronize(stream2);
+   
+    
+    
+    cudaEventElapsedTime(&totalTime, start, stop);
+    cudaEventElapsedTime(&totalTime_st2, start_st2, stop_st2);
+    // printf("strean2 totally cost %lf \n",totalTime/1000.0);
+    // printf("stream1 totally cost %lf \n",totalTime_st2/1000.0);
+    printf("it costs %lfs",total_time);
+    
+    // cudaEventDestroy(stop);
     end1 = clock();
-    printf("it costs %lfs",(double)(end1-begin1)/CLOCKS_PER_SEC);
+    // printf("it costs %lfs",(double)(end1-begin1)/CLOCKS_PER_SEC);
     
     double* host_diag = (double*)malloc(sizeof(double)*minmn*batch);
     double* host_diag1 = (double*)malloc(sizeof(double)*minmn*batch);
@@ -439,12 +462,12 @@ void test17(){
     
     printf("matrix:%d×%d×%d, speedup over cusolver: %lf/%lf = %lf\n", batch, height, width, test_result[2], test_result[1], test_result[2]/test_result[1]); 
 
-    free(host_A);
-    cudaFree(dev_A);
-    cudaFree(dev_U);
-    cudaFree(dev_V);
-    cudaFree(dev_diag);
-    cudaDeviceReset();
+    // free(host_A);
+    // cudaFree(dev_A);
+    // cudaFree(dev_U);
+    // cudaFree(dev_V);
+    // cudaFree(dev_diag);
+    // cudaDeviceReset();
 }
 
 int main(int argc, char* argv[]){
