@@ -21,5 +21,5 @@ The original license terms are included in the `LICENSE-THIRD-PARTY.txt` file.
 ```
 # 分析nsight system命令
 ```
-    nsys profile -o my_system_report ./your_cuda_program
+    nsys profile -o my_system_report ./your_cuda_program -lnvToolsExt
 ```
