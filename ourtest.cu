@@ -16,8 +16,8 @@ using namespace std::chrono;
 void test17(){
     int gpu0=0,gpu1=0;
     int batch = 1;
-    int height = 4096;
-    int width = 4096;
+    int height = 128;
+    int width = 128;
     int th=0, tw=0;
     // int shape[3] = {batch, height, width};
     int minmn = height > width/2 ? width/2 : height;
@@ -253,9 +253,19 @@ void test17(){
 
     clock_t start,end;
     start = clock();
-    for(int i = 0;i < 4;++i){
-        svd_large_matrix_1(gpu0,stream1,false,dev_A, shape, dev_diag, dev_U, dev_V,dev_V0, th, tw, dev_roundRobin,dev_jointG,dev_Aij,dev_AiAi,dev_AiAj,dev_AjAj,dev_pairsOfEVD,dev_allpass,dev_pass,dev_norm,dev_order,dev_tempFnorm,dev_Fnorm);
-        svd_large_matrix_1(gpu1,stream2,false,dev_A_1, shape, dev_diag_1, dev_U_1, dev_V_1,dev_V0, th, tw, dev_roundRobin_1,dev_jointG_1,dev_Aij_1,dev_AiAi_1,dev_AiAj_1,dev_AjAj_1,dev_pairsOfEVD_1,dev_allpass_1,dev_pass_1,dev_norm_1,dev_order_1,dev_tempFnorm_1,dev_Fnorm_1);
+    cudaSetDevice(gpu0);
+    dim3 dimGrid0(1, 1, 1);
+    dim3 dimBlock0(32, 32, 1);
+    generate_roundRobin_128<<<dimGrid0, dimBlock0,0,stream1>>>(dev_roundRobin, 2*k);
+    cudaSetDevice(gpu1);
+    generate_roundRobin_128<<<dimGrid0, dimBlock0,0,stream2>>>(dev_roundRobin_1, 2*k);
+    int g = 0;
+    printf("width :%d \n",width_perdevice);
+    for(int i = 0;i < 11;++i){
+        g=0;
+        svd_large_matrix_1(g,gpu0,stream1,false,dev_A, shape, dev_diag, dev_U, dev_V,dev_V0, th, tw, dev_roundRobin,dev_jointG,dev_Aij,dev_AiAi,dev_AiAj,dev_AjAj,dev_pairsOfEVD,dev_allpass,dev_pass,dev_norm,dev_order,dev_tempFnorm,dev_Fnorm);
+        svd_large_matrix_1(g,gpu1,stream2,false,dev_A_1, shape, dev_diag_1, dev_U_1, dev_V_1,dev_V0, th, tw, dev_roundRobin_1,dev_jointG_1,dev_Aij_1,dev_AiAi_1,dev_AiAj_1,dev_AjAj_1,dev_pairsOfEVD_1,dev_allpass_1,dev_pass_1,dev_norm_1,dev_order_1,dev_tempFnorm_1,dev_Fnorm_1);
+        g=1;
         // cudaMemcpy(host_A1,dev_A,sizeof(double)*p*k*height,cudaMemcpyDeviceToHost);
         // printf("host_A %d\n",i);
         // for(int j = 0;j < p*k*height;++j){
@@ -290,8 +300,8 @@ void test17(){
         cudaStreamSynchronize(stream1);  // 等待 stream1 完
         cudaStreamSynchronize(stream2);  // 等待 stream2 完
 
-        svd_large_matrix_1(gpu0,stream1,false,dev_A, shape, dev_diag, dev_U, dev_V,dev_V0, th, tw, dev_roundRobin,dev_jointG,dev_Aij,dev_AiAi,dev_AiAj,dev_AjAj,dev_pairsOfEVD,dev_allpass,dev_pass,dev_norm,dev_order,dev_tempFnorm,dev_Fnorm);
-        svd_large_matrix_1(gpu1,stream2,false,dev_A_1, shape, dev_diag_1, dev_U_1, dev_V_1,dev_V0, th, tw, dev_roundRobin_1,dev_jointG_1,dev_Aij_1,dev_AiAi_1,dev_AiAj_1,dev_AjAj_1,dev_pairsOfEVD_1,dev_allpass_1,dev_pass_1,dev_norm_1,dev_order_1,dev_tempFnorm_1,dev_Fnorm_1);
+        svd_large_matrix_1(g,gpu0,stream1,false,dev_A, shape, dev_diag, dev_U, dev_V,dev_V0, th, tw, dev_roundRobin,dev_jointG,dev_Aij,dev_AiAi,dev_AiAj,dev_AjAj,dev_pairsOfEVD,dev_allpass,dev_pass,dev_norm,dev_order,dev_tempFnorm,dev_Fnorm);
+        svd_large_matrix_1(g,gpu1,stream2,false,dev_A_1, shape, dev_diag_1, dev_U_1, dev_V_1,dev_V0, th, tw, dev_roundRobin_1,dev_jointG_1,dev_Aij_1,dev_AiAi_1,dev_AiAj_1,dev_AjAj_1,dev_pairsOfEVD_1,dev_allpass_1,dev_pass_1,dev_norm_1,dev_order_1,dev_tempFnorm_1,dev_Fnorm_1);
 
         cudaMemcpyAsync(dev_swap_data,dev_A+p*k*height,sizeof(double)*p*k*height,cudaMemcpyDeviceToDevice,stream1);
         cudaMemcpyAsync(dev_swap_data_1,dev_A_1,sizeof(double)*p1*k*height,cudaMemcpyDeviceToDevice,stream2);
@@ -319,10 +329,10 @@ void test17(){
 		// cudaStreamWaitEvent(stream1, event2, 0);  // 流1等待流2的事件
 		// // 流2等待流1的事件完成
 		// cudaStreamWaitEvent(stream2, event1, 0);  // 流2等待流1的事件
-        bool flag = i==3;
-        svd_large_matrix_1(gpu0,stream1,flag,dev_A, shape, dev_diag, dev_U, dev_V,dev_V0, th, tw, dev_roundRobin,dev_jointG,dev_Aij,dev_AiAi,dev_AiAj,dev_AjAj,dev_pairsOfEVD,dev_allpass,dev_pass,dev_norm,dev_order,dev_tempFnorm,dev_Fnorm);
-        svd_large_matrix_1(gpu1,stream2,flag,dev_A_1, shape, dev_diag_1, dev_U_1, dev_V_1,dev_V0, th, tw, dev_roundRobin_1,dev_jointG_1,dev_Aij_1,dev_AiAi_1,dev_AiAj_1,dev_AjAj_1,dev_pairsOfEVD_1,dev_allpass_1,dev_pass_1,dev_norm_1,dev_order_1,dev_tempFnorm_1,dev_Fnorm_1);
-        if(i != 3){
+        bool flag = i==10;
+        svd_large_matrix_1(g,gpu0,stream1,flag,dev_A, shape, dev_diag, dev_U, dev_V,dev_V0, th, tw, dev_roundRobin,dev_jointG,dev_Aij,dev_AiAi,dev_AiAj,dev_AjAj,dev_pairsOfEVD,dev_allpass,dev_pass,dev_norm,dev_order,dev_tempFnorm,dev_Fnorm);
+        svd_large_matrix_1(g,gpu1,stream2,flag,dev_A_1, shape, dev_diag_1, dev_U_1, dev_V_1,dev_V0, th, tw, dev_roundRobin_1,dev_jointG_1,dev_Aij_1,dev_AiAi_1,dev_AiAj_1,dev_AjAj_1,dev_pairsOfEVD_1,dev_allpass_1,dev_pass_1,dev_norm_1,dev_order_1,dev_tempFnorm_1,dev_Fnorm_1);
+        if(i != 10){
             
             cudaMemcpyAsync(dev_swap_data,dev_A+p*k*height,sizeof(double)*p*k*height,cudaMemcpyDeviceToDevice,stream1);
             cudaMemcpyAsync(dev_swap_data_1,dev_A_1+p1*k*height,sizeof(double)*p1*k*height,cudaMemcpyDeviceToDevice,stream2);

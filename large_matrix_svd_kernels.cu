@@ -389,6 +389,168 @@ __global__ void converge_verify(double* dev_G, int size, double *dev_Fnorm, unsi
 	}
 		
 }
+__global__ void getRankNewNew_1(int length_b, int *p_a, int *p_b,int* p_ab){
+    int tid = threadIdx.x;
+    int temp = 0;
+    
+    while(tid < length_b){
+        p_a[tid]=tid;
+        p_b[tid]=tid+length_b;
+        p_ab[2*tid] = tid;
+        p_ab[2*tid+1] = tid+length_b;
+        tid += blockDim.x;
+    }
+    __syncthreads();
+    for(int i = 1;i < length_b;++i){
+        tid = threadIdx.x;
+        while (tid < length_b - 1) {
+            pp[tid] = p_b[tid + 1]; // **确保 pp 已分配**
+            tid += blockDim.x;
+        }
+        __syncthreads();
+        if (threadIdx.x == 0) {
+            temp = p_b[0];
+            pp[length_b - 1] = temp;
+        }
+        __syncthreads();
+
+        tid = threadIdx.x;
+        while (tid < length_b) {
+            p_b[tid] = pp[tid];
+            tid += blockDim.x;
+        }
+        __syncthreads();
+        tid = threadIdx.x;
+        while(tid < length_b){
+            p_ab[i*2*length_b+2*tid]=p_a[tid];
+            p_ab[i*2*length_b+2*tid+1]=p_b[tid];
+            tid += blockDim.x;
+        }
+        __syncthreads();
+    }
+}
+// <<<sliceNum,p,batch>>>
+__global__ void generate_jointG00_1(int* pab,double *dev_A, int height, int width,  int p, int q, int *dev_pairsOfEVD,
+    double *dev_AiAi, double *dev_AiAj, double *dev_AjAj, int iterNum, int k, int slice, int sliceNum)
+{
+    __shared__ int index[2];
+    __shared__ int sm_Ai[32][25];
+    __shared__ int sm_Aj[32][25];
+    int tid = threadIdx.x;			// 0~255
+    int tid1 = threadIdx.x + 256;	// 256~511
+    int tid2 = threadIdx.x + 512;	// 512~767
+    int iter = slice / 32;	// 1
+
+    if (tid == 0)
+    {
+        index[0] = pab[2*iterNum*gridDim.y+blockIdx.y*2];
+        index[1] = pab[2*iterNum*gridDim.y+blockIdx.y*2+1];
+        dev_pairsOfEVD[2 * (blockIdx.z * p + blockIdx.y)] = index[0];
+        dev_pairsOfEVD[2 * (blockIdx.z * p + blockIdx.y) + 1] = index[1];
+
+    // if(blockIdx.x==1 && blockIdx.y==1)
+    // printf("index: %d - %d \n", index[0], index[1]);
+    }
+
+    __syncthreads();
+
+    int Cvalueii = 0.0;
+    int Cvalueij = 0.0;
+    int Cvaluejj = 0.0;
+    int Cvalueii1 = 0.0;
+    int Cvalueij1 = 0.0;
+    int Cvaluejj1 = 0.0;
+    int Cvalueii2 = 0.0;
+    int Cvalueij2 = 0.0;
+    int Cvaluejj2 = 0.0;
+    int locx = tid % 32; 	// (0~31)
+    int locy = tid / 32;	// (0~7)
+
+    for (int t = 0; t < iter; t++)
+	{
+		if (true)
+		{
+			// get data
+			if (tid < 128)
+			{
+				for (int i = 0; i < k / 4; i++)
+				{
+					sm_Ai[locx][locy + i * 4] = dev_A[blockIdx.z * height * width + (index[0] * k + locy + i * 4) * height + blockIdx.x * slice + t * 32 + locx];
+				}
+			}
+			else
+			{
+				for (int i = 0; i < k / 4; i++)
+				{
+					sm_Aj[locx][locy - 4 + i * 4] = dev_A[blockIdx.z * height * width + (index[1] * k + locy - 4 + i * 4) * height + blockIdx.x * slice + t * 32 + locx];
+				}
+			}
+
+			__syncthreads();
+
+			// do GEMM
+			int locxx, locyy;
+			if (tid < k * k)
+			{
+				locxx = tid % k;
+				locyy = tid / k;
+				for (unsigned i = 0; i < 32; i++)
+				{
+					Cvalueii += sm_Ai[i][locxx] * sm_Ai[i][locyy];
+					Cvalueij += sm_Ai[i][locxx] * sm_Aj[i][locyy];
+					Cvaluejj += sm_Aj[i][locxx] * sm_Aj[i][locyy];
+				}
+			}
+			// __syncthreads();
+			if (tid1 < k * k)
+			{
+				locxx = tid1 % k;
+				locyy = tid1 / k;
+				for (unsigned i = 0; i < 32; i++)
+				{
+					Cvalueii1 += sm_Ai[i][locxx] * sm_Ai[i][locyy];
+					Cvalueij1 += sm_Ai[i][locxx] * sm_Aj[i][locyy];
+					Cvaluejj1 += sm_Aj[i][locxx] * sm_Aj[i][locyy];
+				}
+			}
+			// __syncthreads();
+			if (tid2 < k * k)
+			{
+				locxx = tid2 % k;
+				locyy = tid2 / k;
+				for (unsigned i = 0; i < 32; i++)
+				{
+					Cvalueii2 += sm_Ai[i][locxx] * sm_Ai[i][locyy];
+					Cvalueij2 += sm_Ai[i][locxx] * sm_Aj[i][locyy];
+					Cvaluejj2 += sm_Aj[i][locxx] * sm_Aj[i][locyy];
+				}
+			}
+			__syncthreads();
+		}
+		__syncthreads();
+	}
+	__syncthreads();
+	
+	// store data
+	if (tid < k * k)
+	{
+		dev_AiAi[blockIdx.z * k * k * sliceNum * p + blockIdx.y * k * k * sliceNum + blockIdx.x * k * k + tid] = Cvalueii;
+		dev_AiAj[blockIdx.z * k * k * sliceNum * p + blockIdx.y * k * k * sliceNum + blockIdx.x * k * k + tid] = Cvalueij;
+		dev_AjAj[blockIdx.z * k * k * sliceNum * p + blockIdx.y * k * k * sliceNum + blockIdx.x * k * k + tid] = Cvaluejj;
+	}
+	if (tid1 < k * k)
+	{
+		dev_AiAi[blockIdx.z * k * k * sliceNum * p + blockIdx.y * k * k * sliceNum + blockIdx.x * k * k + tid1] = Cvalueii1;
+		dev_AiAj[blockIdx.z * k * k * sliceNum * p + blockIdx.y * k * k * sliceNum + blockIdx.x * k * k + tid1] = Cvalueij1;
+		dev_AjAj[blockIdx.z * k * k * sliceNum * p + blockIdx.y * k * k * sliceNum + blockIdx.x * k * k + tid1] = Cvaluejj1;
+	}
+	if (tid2 < k * k)
+	{
+		dev_AiAi[blockIdx.z * k * k * sliceNum * p + blockIdx.y * k * k * sliceNum + blockIdx.x * k * k + tid2] = Cvalueii2;
+		dev_AiAj[blockIdx.z * k * k * sliceNum * p + blockIdx.y * k * k * sliceNum + blockIdx.x * k * k + tid2] = Cvalueij2;
+		dev_AjAj[blockIdx.z * k * k * sliceNum * p + blockIdx.y * k * k * sliceNum + blockIdx.x * k * k + tid2] = Cvaluejj2;
+	}
+}
 
 // generate Gram Matrix step1, match A_ij do the GEMM 
 // <<<(sliceNum, p, batch), 256>>>

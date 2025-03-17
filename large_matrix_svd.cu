@@ -11,7 +11,7 @@
 #include "utils.cu"
 
 
-void svd_large_matrix_1(int gpu,cudaStream_t& stream,bool isfinal,double* dev_A, int* shape, double* dev_diag, double* dev_U, double* dev_V,double* dev_V0, int th, int tw,
+void svd_large_matrix_1(int flag1,int gpu,cudaStream_t& stream,bool isfinal,double* dev_A, int* shape, double* dev_diag, double* dev_U, double* dev_V,double* dev_V0, int th, int tw,
     int* dev_roundRobin,double* dev_jointG,double* dev_Aij,double* dev_AiAi,double* dev_AiAj,double* dev_AjAj,
     int* dev_pairsOfEVD,unsigned* dev_allpass,unsigned* dev_pass,double* dev_norm,unsigned* dev_order,double* dev_tempFnorm,
     double* dev_Fnorm, double* test_tag=nullptr, double svd_tol = 1e-7)
@@ -29,10 +29,25 @@ void svd_large_matrix_1(int gpu,cudaStream_t& stream,bool isfinal,double* dev_A,
     int sliceNum = (height0-1)/slice + 1;
     int q = sliceNum;
     int p = (width-1)/(2*k)+1;
+    int r = p/2;
+    // printf("p  %d\n",p);
     unsigned* host_allpass = (unsigned*) malloc(sizeof(unsigned)*batch);
     // double* dev_A0 = dev_A00;
     // double* temp_A = nullptr;
     int tag = 0;
+    int*p_a,*p_b,*p_ab;
+    cudaMalloc((void**)&p_a,sizeof(int)*p);
+    cudaMalloc((void**)&p_b,sizeof(int)*p);
+    cudaMalloc((void**)&p_ab,sizeof(int)*2*p*p);
+    getRankNewNew_1<<<1,1024>>>(p,p_a,p_b,p_ab);
+    // int h_ab[1000];
+    // cudaMemcpy(h_ab,p_ab,sizeof(int)*p*p*2,cudaMemcpyDeviceToHost);
+    // for(int g = 0;g < p;++g){
+    //     for(int d = 0;d < 2*p;++d){
+    //         printf("%d ",h_ab[g*2*p+d]);
+    //     }
+    //     printf("\n");
+    // }
     // do trans
     // int do_trans = 1;
     // if(test_tag!=nullptr && (test_tag[0]==3.0 || test_tag[0] == 6.0 || test_tag[0] == 3.5))
@@ -131,7 +146,7 @@ void svd_large_matrix_1(int gpu,cudaStream_t& stream,bool isfinal,double* dev_A,
 
     clock_t start, end;
     double tolerance;
-    int maxsweep = 20; int sweep = 0;
+    int maxsweep = 8; int sweep = 0;
     start = clock();
     if(test_tag != nullptr && test_tag[0] == 10.0){
         // specify maxsweep
@@ -140,28 +155,98 @@ void svd_large_matrix_1(int gpu,cudaStream_t& stream,bool isfinal,double* dev_A,
     bool continue_flag = true;
     // while (!ifallpass(host_allpass, batch, p) && sweep<maxsweep)//占时少
     int cnt=0;
+    if(flag1 == 1){
+        printf("first time\n");
+    }
+    int fvb = 1;
     while (continue_flag)//占时少
     {
-        for (int i = 0; i < 2 * p - 1; i++)
-        // for (int i = 0; i < 1; i++)
-        {
-#pragma region // svd one-round
-   
-            if(k <= 24){
-                // major algorithm (other branches are just for test)
-                dim3 dimGrid77(sliceNum, p, batch); // 2×2×100个block，每个block 256线程
-                generate_jointG00<<<dimGrid77, 256,0,stream>>>(dev_A, height, width, dev_order, dev_pass, p, q, dev_pairsOfEVD, dev_AiAi, dev_AiAj, dev_AjAj, i, k, slice, sliceNum);    //&1.3
-                cudaDeviceSynchronize();
+        if(flag1 == 0){
+            for (int i = 0; i < 2 * p - 1; i++)
+            // for (int i = 0; i < 1; i++)
+            {
+    #pragma region // svd one-round
+    
+                if(k <= 24){
+                    // major algorithm (other branches are just for test)
+                    dim3 dimGrid77(sliceNum, p, batch); // 2×2×100个block，每个block 256线程
+                    generate_jointG00<<<dimGrid77, 256,0,stream>>>(dev_A, height, width, dev_order, dev_pass, p, q, dev_pairsOfEVD, dev_AiAi, dev_AiAj, dev_AjAj, i, k, slice, sliceNum);    //&1.3
+                    cudaDeviceSynchronize();
 
-                dim3 dimGrid7(p, batch, 1);
-                generate_jointG21<<<dimGrid7, 256,0,stream>>>(dev_jointG, dev_AiAi, dev_AiAj, dev_AjAj, dev_Fnorm, dev_pass, p, k, sliceNum, svd_tol);    //&1.3
-                cudaDeviceSynchronize();
+                    dim3 dimGrid7(p, batch, 1);
+                    generate_jointG21<<<dimGrid7, 256,0,stream>>>(dev_jointG, dev_AiAi, dev_AiAj, dev_AjAj, dev_Fnorm, dev_pass, p, k, sliceNum, svd_tol);    //&1.3
+                    cudaDeviceSynchronize();
 
-                EVD_1(stream,dev_jointG, dev_A, dev_V, dev_pairsOfEVD, p, q, height, width, dev_roundRobin, batch, k, slice, sliceNum, sweep); //&1.3
-                cudaDeviceSynchronize();
+                    EVD_1(stream,dev_jointG, dev_A, dev_V, dev_pairsOfEVD, p, q, height, width, dev_roundRobin, batch, k, slice, sliceNum, sweep); //&1.3
+                    cudaDeviceSynchronize();
+                }
+                // int host_devpair[10000];
+                // cudaMemcpy(host_devpair,dev_pairsOfEVD,sizeof(int)*2*p,cudaMemcpyDeviceToHost);
+                // for(int f = 0;f < 2*p;++f){
+                //     printf("%d ",host_devpair[f]);
+                // }
+                // printf("\n\n");
+                // printf("jointG \n");
+                // double* host_jointG = (double*)malloc(sizeof(double)*2*k*2*k*p);
+                
+                // cudaMemcpy(host_jointG,dev_jointG,sizeof(double)*2*k*2*k*p,cudaMemcpyDeviceToHost);
+                // if(fvb == 1){
+                //     for(int u = 0;u < p;++u){
+                //         for(int f = 0;f < 2*k;++f){
+                //             for(int v = 0;v < 2*k;++v){
+                //                 printf("%f ",host_jointG[u*2*k*2*k+f*2*k+v]);
+                //             }
+                //             printf("\n");
+                //         }
+                //         printf("\n");
+                //     }
+                //     fvb = 0;
+                // }
+    #pragma endregion
             }
-#pragma endregion
         }
+        else if(flag1 == 1){
+           
+            for (int i = 0; i <  p; i++)
+            // for (int i = 0; i < 1; i++)
+            {
+    #pragma region // svd one-round
+    
+                if(k <= 24){
+                    // major algorithm (other branches are just for test)
+                    dim3 dimGrid77(sliceNum, p, batch); // 2×2×100个block，每个block 256线程
+                    generate_jointG00_1<<<dimGrid77, 256,0,stream>>>(p_ab,dev_A, height, width, p, q, dev_pairsOfEVD, dev_AiAi, dev_AiAj, dev_AjAj, i, k, slice, sliceNum);    //&1.3
+                    cudaDeviceSynchronize();
+
+                    dim3 dimGrid7(p, batch, 1);
+                    generate_jointG21<<<dimGrid7, 256,0,stream>>>(dev_jointG, dev_AiAi, dev_AiAj, dev_AjAj, dev_Fnorm, dev_pass, p, k, sliceNum, svd_tol);    //&1.3
+                    cudaDeviceSynchronize();
+
+                    EVD_1(stream,dev_jointG, dev_A, dev_V, dev_pairsOfEVD, p, q, height, width, dev_roundRobin, batch, k, slice, sliceNum, sweep); //&1.3
+                    cudaDeviceSynchronize();
+                }
+                double* host_AiAi = (double*)malloc(sizeof(double)* k * k * sliceNum * p * batch);
+                cudaMemcpy(host_AiAi,dev_AiAi,sizeof(double)*k * k * sliceNum * p * batch,cudaMemcpyDeviceToHost);
+                if(fvb == 1){
+                    for(int g = 0;g < 10;++g){
+                        printf("%lf ",host_AiAi[g]);
+                    }
+                    fvb = 0;
+                }
+                printf("\n");
+                // int host_devpair[10000];
+                // cudaMemcpy(host_devpair,dev_pairsOfEVD,sizeof(int)*2*p,cudaMemcpyDeviceToHost);
+                // for(int f = 0;f < 2*p;++f){
+                //     printf("%d ",host_devpair[f]);
+                // }
+                // printf("\n\n");
+                
+                
+                
+    #pragma endregion
+            }
+        }
+        
         ++cnt;
         // printf("times %d\n",cnt);
         parallel_ordering_choice(stream,p, height/32, dev_order, dev_A, height, width, dev_norm, batch, k);    // may changed some match orders
