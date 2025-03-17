@@ -434,8 +434,8 @@ __global__ void generate_jointG00_1(int* pab,double *dev_A, int height, int widt
     double *dev_AiAi, double *dev_AiAj, double *dev_AjAj, int iterNum, int k, int slice, int sliceNum)
 {
     __shared__ int index[2];
-    __shared__ int sm_Ai[32][25];
-    __shared__ int sm_Aj[32][25];
+    __shared__ double sm_Ai[32][25];
+    __shared__ double sm_Aj[32][25];
     int tid = threadIdx.x;			// 0~255
     int tid1 = threadIdx.x + 256;	// 256~511
     int tid2 = threadIdx.x + 512;	// 512~767
@@ -454,17 +454,17 @@ __global__ void generate_jointG00_1(int* pab,double *dev_A, int height, int widt
 
     __syncthreads();
 
-    int Cvalueii = 0.0;
-    int Cvalueij = 0.0;
-    int Cvaluejj = 0.0;
-    int Cvalueii1 = 0.0;
-    int Cvalueij1 = 0.0;
-    int Cvaluejj1 = 0.0;
-    int Cvalueii2 = 0.0;
-    int Cvalueij2 = 0.0;
-    int Cvaluejj2 = 0.0;
-    int locx = tid % 32; 	// (0~31)
-    int locy = tid / 32;	// (0~7)
+    double Cvalueii = 0.0;
+	double Cvalueij = 0.0;
+	double Cvaluejj = 0.0;
+	double Cvalueii1 = 0.0;
+	double Cvalueij1 = 0.0;
+	double Cvaluejj1 = 0.0;
+	double Cvalueii2 = 0.0;
+	double Cvalueij2 = 0.0;
+	double Cvaluejj2 = 0.0;
+	int locx = tid % 32; 	// (0~31)
+	int locy = tid / 32;	// (0~7)
 
     for (int t = 0; t < iter; t++)
 	{
