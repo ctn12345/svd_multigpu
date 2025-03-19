@@ -125,6 +125,58 @@ __device__ void push_forward(int *p_a, int *p_b, int i, int length_b)
 	__syncthreads();
 }
 
+
+__global__ void getRankNewNew_2(int row,int* p_ab,int* p_a,int* p_b)
+{
+
+	unsigned tid = threadIdx.x;
+	unsigned iter = blockDim.x;
+
+	for (unsigned i = tid; i < row; i += iter)
+	{
+
+		if (i % 2 == 0)
+		{
+			// p_ab[0][i / 2][0] = i;
+			p_ab[i]=i;
+			// p_a[0][i / 2] = i;
+			p_a[i/2]=i;
+		}
+		else
+		{
+			// p_ab[1][i / 2][0] = i;
+			p_ab[i]=i;
+			// p_a[1][i / 2] = i;
+			p_b[i/2]=i;
+		}
+	}
+	__syncthreads();
+
+	int count = 0;
+	for (unsigned i = 1; i < row - (1 - row % 2); i++)
+	{
+
+		if (i - 1 == 2 * (count + 1))
+		{
+			count = count + 1;
+		}
+		__syncthreads();
+
+		// push_forward(p_a[0], p_a[1], count, row / 2);
+		push_forward(p_a, p_b, count, row / 2);
+		__syncthreads();
+
+		for (unsigned j = tid; j < row / 2; j += iter)
+		{
+			// p_ab[0][j][i] = p_a[0][j];
+			// p_ab[1][j][i] = p_a[1][j];
+			p_ab[i*row+2*j] = p_a[j];
+			p_ab[i*row+2*j+1] = p_b[j];
+		}
+		__syncthreads();
+	}
+}
+
 __global__ void getRankNewNew(int row)
 {
 
@@ -552,6 +604,128 @@ __global__ void generate_jointG00_1(int* pab,double *dev_A, int height, int widt
 	}
 }
 
+
+__global__ void generate_jointG00_2(double *dev_A, int height, int width,  int p, int q, int *dev_pairsOfEVD,
+    double *dev_AiAi, double *dev_AiAj, double *dev_AjAj, int k, int slice, int sliceNum)
+{
+    __shared__ int index[2];
+    __shared__ double sm_Ai[32][25];
+    __shared__ double sm_Aj[32][25];
+    int tid = threadIdx.x;			// 0~255
+    int tid1 = threadIdx.x + 256;	// 256~511
+    int tid2 = threadIdx.x + 512;	// 512~767
+    int iter = slice / 32;	// 1
+
+    if (tid == 0)
+    {
+        index[0] = 2*blockIdx.y;
+        index[1] = 2*blockIdx.y+1;
+        dev_pairsOfEVD[2 * (blockIdx.z * p + blockIdx.y)] = index[0];
+        dev_pairsOfEVD[2 * (blockIdx.z * p + blockIdx.y) + 1] = index[1];
+
+    // if(blockIdx.x==1 && blockIdx.y==1)
+    // printf("index: %d - %d \n", index[0], index[1]);
+    }
+
+    __syncthreads();
+
+    double Cvalueii = 0.0;
+	double Cvalueij = 0.0;
+	double Cvaluejj = 0.0;
+	double Cvalueii1 = 0.0;
+	double Cvalueij1 = 0.0;
+	double Cvaluejj1 = 0.0;
+	double Cvalueii2 = 0.0;
+	double Cvalueij2 = 0.0;
+	double Cvaluejj2 = 0.0;
+	int locx = tid % 32; 	// (0~31)
+	int locy = tid / 32;	// (0~7)
+
+    for (int t = 0; t < iter; t++)
+	{
+		if (true)
+		{
+			// get data
+			if (tid < 128)
+			{
+				for (int i = 0; i < k / 4; i++)
+				{
+					sm_Ai[locx][locy + i * 4] = dev_A[blockIdx.z * height * width + (index[0] * k + locy + i * 4) * height + blockIdx.x * slice + t * 32 + locx];
+				}
+			}
+			else
+			{
+				for (int i = 0; i < k / 4; i++)
+				{
+					sm_Aj[locx][locy - 4 + i * 4] = dev_A[blockIdx.z * height * width + (index[1] * k + locy - 4 + i * 4) * height + blockIdx.x * slice + t * 32 + locx];
+				}
+			}
+
+			__syncthreads();
+
+			// do GEMM
+			int locxx, locyy;
+			if (tid < k * k)
+			{
+				locxx = tid % k;
+				locyy = tid / k;
+				for (unsigned i = 0; i < 32; i++)
+				{
+					Cvalueii += sm_Ai[i][locxx] * sm_Ai[i][locyy];
+					Cvalueij += sm_Ai[i][locxx] * sm_Aj[i][locyy];
+					Cvaluejj += sm_Aj[i][locxx] * sm_Aj[i][locyy];
+				}
+			}
+			// __syncthreads();
+			if (tid1 < k * k)
+			{
+				locxx = tid1 % k;
+				locyy = tid1 / k;
+				for (unsigned i = 0; i < 32; i++)
+				{
+					Cvalueii1 += sm_Ai[i][locxx] * sm_Ai[i][locyy];
+					Cvalueij1 += sm_Ai[i][locxx] * sm_Aj[i][locyy];
+					Cvaluejj1 += sm_Aj[i][locxx] * sm_Aj[i][locyy];
+				}
+			}
+			// __syncthreads();
+			if (tid2 < k * k)
+			{
+				locxx = tid2 % k;
+				locyy = tid2 / k;
+				for (unsigned i = 0; i < 32; i++)
+				{
+					Cvalueii2 += sm_Ai[i][locxx] * sm_Ai[i][locyy];
+					Cvalueij2 += sm_Ai[i][locxx] * sm_Aj[i][locyy];
+					Cvaluejj2 += sm_Aj[i][locxx] * sm_Aj[i][locyy];
+				}
+			}
+			__syncthreads();
+		}
+		__syncthreads();
+	}
+	__syncthreads();
+	
+	// store data
+	if (tid < k * k)
+	{
+		dev_AiAi[blockIdx.z * k * k * sliceNum * p + blockIdx.y * k * k * sliceNum + blockIdx.x * k * k + tid] = Cvalueii;
+		dev_AiAj[blockIdx.z * k * k * sliceNum * p + blockIdx.y * k * k * sliceNum + blockIdx.x * k * k + tid] = Cvalueij;
+		dev_AjAj[blockIdx.z * k * k * sliceNum * p + blockIdx.y * k * k * sliceNum + blockIdx.x * k * k + tid] = Cvaluejj;
+	}
+	if (tid1 < k * k)
+	{
+		dev_AiAi[blockIdx.z * k * k * sliceNum * p + blockIdx.y * k * k * sliceNum + blockIdx.x * k * k + tid1] = Cvalueii1;
+		dev_AiAj[blockIdx.z * k * k * sliceNum * p + blockIdx.y * k * k * sliceNum + blockIdx.x * k * k + tid1] = Cvalueij1;
+		dev_AjAj[blockIdx.z * k * k * sliceNum * p + blockIdx.y * k * k * sliceNum + blockIdx.x * k * k + tid1] = Cvaluejj1;
+	}
+	if (tid2 < k * k)
+	{
+		dev_AiAi[blockIdx.z * k * k * sliceNum * p + blockIdx.y * k * k * sliceNum + blockIdx.x * k * k + tid2] = Cvalueii2;
+		dev_AiAj[blockIdx.z * k * k * sliceNum * p + blockIdx.y * k * k * sliceNum + blockIdx.x * k * k + tid2] = Cvalueij2;
+		dev_AjAj[blockIdx.z * k * k * sliceNum * p + blockIdx.y * k * k * sliceNum + blockIdx.x * k * k + tid2] = Cvaluejj2;
+	}
+}
 // generate Gram Matrix step1, match A_ij do the GEMM 
 // <<<(sliceNum, p, batch), 256>>>
 __global__ void generate_jointG00(double *dev_A, int height, int width, unsigned int *dev_order, unsigned int *dev_pass, int p, int q, int *dev_pairsOfEVD,
@@ -2922,9 +3096,23 @@ void EVD_1(cudaStream_t& stream,double *dev_jointG, double *dev_A, double *dev_V
 
 	cudaDeviceSynchronize();	
 
+	double* test_devA = (double*)malloc(sizeof(double)*height*width);
+	cudaMemcpy(test_devA,dev_A,sizeof(double)*height*width,cudaMemcpyDeviceToHost);
+	// printf("before dev_A\n");
+	// for(int f = 0;f < 5;++f){
+	// 	printf("%lf ",test_devA[f]);
+	// }
+	// printf("\n");
 	dim3 dimGrid11(sliceNum, p, batch);
 	
 	updateBlockColumn2_16<<<dimGrid11, 256,0,stream>>>(dev_A, dev_V, dev_jointG, dev_pairsOfEVD, p, q, height, width, k, slice);
+
+	cudaMemcpy(test_devA,dev_A,sizeof(double)*height*width,cudaMemcpyDeviceToHost);
+	// printf("After dev_A\n");
+	// for(int f = 0;f < 5;++f){
+	// 	printf("%lf ",test_devA[f]);
+	// }
+	// printf("\n");
 
 	
 	cudaDeviceSynchronize();
