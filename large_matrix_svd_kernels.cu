@@ -3094,10 +3094,10 @@ void EVD_1(cudaStream_t& stream,double *dev_jointG, double *dev_A, double *dev_V
 	cudaDeviceSynchronize();
 	
 
-	cudaDeviceSynchronize();	
+	// cudaDeviceSynchronize();	
 
-	double* test_devA = (double*)malloc(sizeof(double)*height*width);
-	cudaMemcpy(test_devA,dev_A,sizeof(double)*height*width,cudaMemcpyDeviceToHost);
+	// double* test_devA = (double*)malloc(sizeof(double)*height*width);
+	// cudaMemcpy(test_devA,dev_A,sizeof(double)*height*width,cudaMemcpyDeviceToHost);
 	// printf("before dev_A\n");
 	// for(int f = 0;f < 5;++f){
 	// 	printf("%lf ",test_devA[f]);
@@ -3107,7 +3107,7 @@ void EVD_1(cudaStream_t& stream,double *dev_jointG, double *dev_A, double *dev_V
 	
 	updateBlockColumn2_16<<<dimGrid11, 256,0,stream>>>(dev_A, dev_V, dev_jointG, dev_pairsOfEVD, p, q, height, width, k, slice);
 
-	cudaMemcpy(test_devA,dev_A,sizeof(double)*height*width,cudaMemcpyDeviceToHost);
+	// cudaMemcpy(test_devA,dev_A,sizeof(double)*height*width,cudaMemcpyDeviceToHost);
 	// printf("After dev_A\n");
 	// for(int f = 0;f < 5;++f){
 	// 	printf("%lf ",test_devA[f]);
