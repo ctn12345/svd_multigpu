@@ -45,10 +45,10 @@ void fill_hostorder_total(int* host_order_total,int* host_order_1,int* host_orde
 // fig 14 a
 // 100x512x512 speedup over cusolver(CUDA platform)
 void test17(){
-    int gpu0=0,gpu1=0;
+    int gpu0=0,gpu1=1;
     int batch = 1;
-    int height = 2048;
-    int width = 2048;
+    int height = 3072;
+    int width = 3072;
     int th=0, tw=0;
     // int shape[3] = {batch, height, width};
     int minmn = height > width/2 ? width/2 : height;
@@ -320,12 +320,12 @@ void test17(){
     // getRankNewNew<<<1, 1024,0,stream2>>>(2 * p1);  //&1.3
     int* host_ab = (int*)malloc(sizeof(int)*2*(p+p1)*(2*(p+p1)-1));
     cudaMemcpyAsync(host_ab,p_ab,sizeof(int)*2*(p+p1)*(2*(p+p1)-1),cudaMemcpyDeviceToHost,stream1);
-    for(int i = 0;i < 2*(p+p1)-1;++i){
-        for(int g = 0;g < 2*(p+p1);++g){
-            printf("%d ",host_ab[i*(2*(p+p1))+g]);
-        }
-        printf("\n");
-    }
+    // for(int i = 0;i < 2*(p+p1)-1;++i){
+    //     for(int g = 0;g < 2*(p+p1);++g){
+    //         printf("%d ",host_ab[i*(2*(p+p1))+g]);
+    //     }
+    //     printf("\n");
+    // }
     cudaSetDevice(gpu0);
     getRankNewNew_2<<<1,1024,0,stream1>>>(2*p,dev_pab,dev_pa,dev_pb);
     getRankNewNew_1<<<1,1024,0,stream1>>>(p,dev_pa1,dev_pb1,dev_pab1);
@@ -338,24 +338,24 @@ void test17(){
     int *host_pab = (int*)malloc(sizeof(int)*2*p*(2*p-1));
     int* host_pab1 = (int*)malloc(sizeof(int)*2*p*p);
     cudaMemcpy(host_pab,dev_pab,sizeof(int)*2*p*(2*p-1),cudaMemcpyDeviceToHost);
-    printf("host_pab\n");
-    for(int t = 0;t < 2*p-1;++t){
-        for(int g = 0;g < 2*p;++g){
-            printf("%d ",host_pab[t*2*p+g]);
-        }
-        printf("\n");
-    }
-    printf("host_pab_1\n");
+    // printf("host_pab\n");
+    // for(int t = 0;t < 2*p-1;++t){
+    //     for(int g = 0;g < 2*p;++g){
+    //         printf("%d ",host_pab[t*2*p+g]);
+    //     }
+    //     printf("\n");
+    // }
+    // printf("host_pab_1\n");
     cudaMemcpy(host_pab1,dev_pab1,sizeof(int)*2*p*p,cudaMemcpyDeviceToHost);
-    for(int t = 0;t < p;++t){
-        for(int g = 0;g < 2*p;++g){
-            printf("%d ",host_pab1[t*2*p+g]);
-        }
-        printf("\n");
-    }
+    // for(int t = 0;t < p;++t){
+    //     for(int g = 0;g < 2*p;++g){
+    //         printf("%d ",host_pab1[t*2*p+g]);
+    //     }
+    //     printf("\n");
+    // }
     double* host_swap_data = (double*)malloc(sizeof(double)*p*height*k);
     double* host_swap_data_1 = (double*)malloc(sizeof(double)*p1*height*k);
-    int sweep = 0,maxsweep = 11;
+    int sweep = 0,maxsweep = 20;
     double svd_tol = 1e-7;
     int* raw_host_order = (int*)malloc(sizeof(int)*2*(p+p1)*batch);
     #pragma omp parallel
@@ -399,11 +399,11 @@ void test17(){
     for(int i = 0;i < 2*(p+p1);++i){
         host_index[raw_host_order[i]] = i;
     }
-    printf("index \n");
-    for(int g = 0;g < 2*(p+p1);++g){
-        printf("%d ",host_index[g]);
-    }
-    printf("\n");
+    // printf("index \n");
+    // for(int g = 0;g < 2*(p+p1);++g){
+    //     printf("%d ",host_index[g]);
+    // }
+    // printf("\n");
     // printf("host_Norm \n");
     // for(int u = 0;u < 2*(p+p1);++u){
     //     if(raw_host_order[u] < 2*p){
@@ -417,7 +417,7 @@ void test17(){
     #pragma omp parallel
     {
         int gpuid = omp_get_thread_num();
-        // cudaSetDevice(gpuid);
+        cudaSetDevice(gpuid);
         if(gpuid==0){
             if(height >= 32){
                 computeFnorm1<<<2 * p * batch, 128,0,stream1>>>(dev_A, dev_tempFnorm, p, height/32, height, width_perdevice, k);
@@ -465,8 +465,17 @@ void test17(){
     cudaEventRecord(start,stream1); 
     float elapsed_time = 0;
     float milliseconds = 0;
+    // print raw Norm
+    // printf("raw norm\n");
+    // for(int i = 0;i < 2*p;++i){
+    //     printf("%f ",host_rawnorm_1[i]);
+    // }
+    // for(int i = 0;i < 2*p1;++i){
+    //     printf("%f ",host_rawnorm_2[i]);
+    // }
+    // printf("\n");
     while(!continue_flag){ 
-                  // part1
+        // part1
         dim3 dimGrid77(sliceNum, p, batch);// 2×2×100个block，每个block 256线程
         dim3 dimGrid7(p, batch, 1);
         // printf("EVD 1\n");
@@ -601,10 +610,20 @@ void test17(){
         }
        
         ++sweep;
+        cudaSetDevice(gpu0);
         judgeFunc<<<batch, 1024,0,stream1>>>(dev_allpass, dev_pass, p);   // concentrate each block's result(converged or not)
+        cudaSetDevice(gpu1);
         judgeFunc<<<batch, 1024,0,stream2>>>(dev_allpass_1, dev_pass_1, p1);   // concentrate each block's result(converged or not)
         cudaMemcpyAsync(host_allpass, dev_allpass, sizeof(unsigned) * batch, cudaMemcpyDeviceToHost,stream1);    
         cudaMemcpyAsync(host_allpass_1, dev_allpass_1, sizeof(unsigned) * batch, cudaMemcpyDeviceToHost,stream2);
+        // printf("host pass\n");
+        // for(int i = 0;i < batch;++i){
+        //     printf("%d ",host_allpass[i]);
+        // }
+        // for(int i = 0;i < batch;++i){
+        //     printf("%d ",host_allpass_1[i]);
+        // }
+        // printf("\n");
 
         continue_flag = ((ifallpass(host_allpass, batch, p) && ifallpass(host_allpass_1,batch,p1)) || sweep>maxsweep);
         cudaSetDevice(gpu0);
