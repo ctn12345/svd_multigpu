@@ -23,3 +23,9 @@ The original license terms are included in the `LICENSE-THIRD-PARTY.txt` file.
 ```
     nsys profile -o my_system_report ./your_cuda_program -lnvToolsExt
 ```
+
+# 测试多GPU代码
+```
+    nvcc  -g -G -Xcompiler -fopenmp paralle_sort_once.cu -o test -lcusolver -lcublas 
+    ./test
+```
