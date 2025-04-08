@@ -128,7 +128,6 @@ __device__ void push_forward(int *p_a, int *p_b, int i, int length_b)
 
 __global__ void getRankNewNew_2(int row,int* p_ab,int* p_a,int* p_b)
 {
-
 	unsigned tid = threadIdx.x;
 	unsigned iter = blockDim.x;
 
@@ -179,7 +178,6 @@ __global__ void getRankNewNew_2(int row,int* p_ab,int* p_a,int* p_b)
 
 __global__ void getRankNewNew(int row)
 {
-
 	unsigned tid = threadIdx.x;
 	unsigned iter = blockDim.x;
 
@@ -349,6 +347,13 @@ __global__ void init_dev_V(double* dev_V, int width){
 	int tid = threadIdx.x;
 	for(int i=tid; i<width; i += blockDim.x)
 		dev_V[blockIdx.x*width*width + i*width + i] = 1;
+}
+
+// <<<batch, 256>>>
+__global__ void Multi_init_dev_V(double* dev_V, int width_perdevice,int width,int gpuid){
+	int tid = threadIdx.x;
+	for(int i=tid; i<width_perdevice; i += blockDim.x)
+		dev_V[blockIdx.x*width_perdevice*width + gpuid*width_perdevice+ i*width + i] = 1;
 }
 
 // <<<(p, batch), 256>>> max w = 128 
@@ -1501,7 +1506,106 @@ __global__ void updateBlockColumn2_16(double *dev_A, double *dev_V, double *dev_
 		__syncthreads();
 	}
 }
+// <<< (sliceNum, p, batch), 256 >>>
+__global__ void Multi_updateBlockColumn2_16(double *dev_A, double *dev_V, double *dev_jointG, int *dev_pairsOfEVD, int p, int q, int height, int width, int width_perdevice, int k, int slice)
+{
+	__shared__ double sm_A[32 * 16 * 2];	// 1024
+	__shared__ double sm_V[32 * 16 * 2];	// 1024
+	__shared__ double sm_G[32][32];			// 1024
+	__shared__ unsigned index[2];
+	int iter = slice / 32;
+	int tid = threadIdx.x;	// 0~255
+	int locx, locy;
+	locx = tid % 32;	// (0~31)
+	locy = tid / 32;
 
+	if (tid < 2)
+	{
+		index[tid] = dev_pairsOfEVD[2 * (blockIdx.z * p + blockIdx.y) + tid];
+	}
+	for (int i = tid; i < 1024; i += 256)
+	{
+		sm_G[i / 32][locx] = dev_jointG[(blockIdx.z * p + blockIdx.y) * 1024 + i];		// 修改后
+	}
+	__syncthreads();
+
+	double Avalue1 = 0.0;
+	double Avalue11 = 0.0;
+	double Avalue2 = 0.0;
+	double Avalue22 = 0.0;
+	double Ivalue1 = 0.0;
+	double Ivalue11 = 0.0;
+	double Ivalue2 = 0.0;
+	double Ivalue22 = 0.0;
+	
+	for (int t = 0; t < iter; t++)
+	{
+		if (true)
+		{
+			sm_A[tid] = dev_A[blockIdx.z * height*width + (index[0] * k + locy) * height + blockIdx.x * slice + t * 32 + locx];
+			sm_A[tid + 256] = dev_A[blockIdx.z * height * width + (index[0] * k + locy + 8) * height + blockIdx.x * slice + t * 32 + locx];
+			sm_A[tid + 512] = dev_A[blockIdx.z * height * width + (index[1] * k + locy) * height + blockIdx.x * slice + t * 32 + locx];
+			sm_A[tid + 768] = dev_A[blockIdx.z * height * width + (index[1] * k + locy + 8) * height + blockIdx.x * slice + t * 32 + locx];
+			if ((blockIdx.x * slice + t * 32 + locx) < width)
+			{
+				sm_V[tid] = dev_V[blockIdx.z * width_perdevice * width + (index[0] * k + locy) * width + blockIdx.x * slice + t * 32 + locx];
+				sm_V[tid + 256] = dev_V[blockIdx.z * width_perdevice * width + (index[0] * k + locy + 8) * width + blockIdx.x * slice + t * 32 + locx];
+				sm_V[tid + 512] = dev_V[blockIdx.z * width_perdevice * width + (index[1] * k + locy) * width + blockIdx.x * slice + t * 32 + locx];
+				sm_V[tid + 768] = dev_V[blockIdx.z * width_perdevice * width + (index[1] * k + locy + 8) * width + blockIdx.x * slice + t * 32 + locx];
+			}
+			else
+			{
+				sm_V[tid] = 0;
+				sm_V[tid + 256] = 0;
+				sm_V[tid + 512] = 0;
+				sm_V[tid + 768] = 0;
+			}
+
+			__syncthreads();
+			Avalue1 = 0.0;
+			Avalue11 = 0.0;
+			Avalue2 = 0.0;
+			Avalue22 = 0.0;
+			Ivalue1 = 0.0;
+			Ivalue11 = 0.0;
+			Ivalue2 = 0.0;
+			Ivalue22 = 0.0;
+			for (unsigned j = 0; j < 2 * k; j++)
+			{
+				Avalue1 += sm_A[locx + 32 * j] * sm_G[locy][j];
+				Avalue11 += sm_A[locx + 32 * j] * sm_G[locy + 8][j];
+				Avalue2 += sm_A[locx + 32 * j] * sm_G[locy + 16][j];
+				Avalue22 += sm_A[locx + 32 * j] * sm_G[locy + 24][j];
+			}
+			if ((blockIdx.x * slice + t * 32 + locx) < width)
+			{
+				for (unsigned j = 0; j < 2 * k; j++)
+				{
+					Ivalue1 += sm_V[locx + 32 * j] * sm_G[locy][j];
+					Ivalue11 += sm_V[locx + 32 * j] * sm_G[locy + 8][j];
+					Ivalue2 += sm_V[locx + 32 * j] * sm_G[locy + 16][j];
+					Ivalue22 += sm_V[locx + 32 * j] * sm_G[locy + 24][j];
+				}
+			}
+			__syncthreads();
+
+			dev_A[blockIdx.z * height * width + (index[0] * k + locy) * height + blockIdx.x * slice + t * 32 + locx] = Avalue1;
+			dev_A[blockIdx.z * height * width + (index[0] * k + locy + 8) * height + blockIdx.x * slice + t * 32 + locx] = Avalue11;
+			dev_A[blockIdx.z * height * width + (index[1] * k + locy) * height + blockIdx.x * slice + t * 32 + locx] = Avalue2;
+			dev_A[blockIdx.z * height * width + (index[1] * k + locy + 8) * height + blockIdx.x * slice + t * 32 + locx] = Avalue22;
+
+			if ((blockIdx.x * slice + t * 32 + locx) < width)
+			{
+				dev_V[blockIdx.z * width_perdevice * width + (index[0] * k + locy) * width + blockIdx.x * slice + t * 32 + locx] = Ivalue1;
+				dev_V[blockIdx.z * width_perdevice * width + (index[0] * k + locy + 8) * width + blockIdx.x * slice + t * 32 + locx] = Ivalue11;
+				dev_V[blockIdx.z * width_perdevice * width + (index[1] * k + locy) * width + blockIdx.x * slice + t * 32 + locx] = Ivalue2;
+				dev_V[blockIdx.z * width_perdevice * width + (index[1] * k + locy + 8) * width + blockIdx.x * slice + t * 32 + locx] = Ivalue22;
+			}
+			__syncthreads();
+		}
+		__syncthreads();
+	}
+}
 // <<< (sliceNum, p, batch), 256 >>>
 __global__ void updateBlockColumn2_24(double *dev_A, double *dev_V, double *dev_jointG, int *dev_pairsOfEVD, int p, int q, int height, int width, int k, int slice)
 {
@@ -3117,7 +3221,37 @@ void EVD_1(cudaStream_t& stream,double *dev_jointG, double *dev_A, double *dev_V
 	
 	cudaDeviceSynchronize();
 }
+void MUL_EVD_1(cudaStream_t& stream,double *dev_jointG, double *dev_A, double *dev_V, int *dev_pairsOfEVD, int p, int q, int height, int width,int width_perdevice, int *dev_roundRobin, int batch, int k, int slice, int sliceNum, int iter=0)
+{
+	dim3 dimGrid9(p, batch, 1);	// 32×100
+	dim3 dimBlock9(2 * k, 2 * k, 1);	// 32×32
+	myevd_batched_16<<<dimGrid9, dimBlock9,0,stream>>>(dev_jointG, dev_roundRobin, p, k);
+	cudaDeviceSynchronize();
+	
 
+	// cudaDeviceSynchronize();	
+
+	// double* test_devA = (double*)malloc(sizeof(double)*height*width);
+	// cudaMemcpy(test_devA,dev_A,sizeof(double)*height*width,cudaMemcpyDeviceToHost);
+	// printf("before dev_A\n");
+	// for(int f = 0;f < 5;++f){
+	// 	printf("%lf ",test_devA[f]);
+	// }
+	// printf("\n");
+	dim3 dimGrid11(sliceNum, p, batch);
+	
+	Multi_updateBlockColumn2_16<<<dimGrid11, 256,0,stream>>>(dev_A, dev_V, dev_jointG, dev_pairsOfEVD, p, q, height, width,width_perdevice, k, slice);
+
+	// cudaMemcpy(test_devA,dev_A,sizeof(double)*height*width,cudaMemcpyDeviceToHost);
+	// printf("After dev_A\n");
+	// for(int f = 0;f < 5;++f){
+	// 	printf("%lf ",test_devA[f]);
+	// }
+	// printf("\n");
+
+	
+	cudaDeviceSynchronize();
+}
 __global__ void judgeFunc(unsigned *dev_allpass, unsigned *dev_pass, int length)
 {
 	__shared__ unsigned pass[1024];
