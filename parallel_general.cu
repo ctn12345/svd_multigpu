@@ -177,12 +177,12 @@ void test17(){
     for(int gpuid = 0;gpuid < num_gpus;++gpuid){
         p[gpuid]=(width_perdevice-1)/(2*k)+1;
         host_order[gpuid] = (int*)malloc(sizeof(int)*p[gpuid]*2*batch);
-        host_A_per[gpuid] = (double*)malloc(sizeof(double)*width_perdevice*height);
+        host_A_per[gpuid] = (double*)malloc(sizeof(double)*width_perdevice*height*batch);
         
         host_rawnorm[gpuid] = (double*)malloc(sizeof(double)*p[gpuid]*2*batch);
         host_norm[gpuid] = (double*)malloc(sizeof(double)*p[gpuid]*2*batch);
-        host_swap_data[gpuid] = (double*)malloc(sizeof(double)*p[gpuid]*height*k);
-        host_swap_V[gpuid] = (double*)malloc(sizeof(double)*width_perdevice*width/2);
+        host_swap_data[gpuid] = (double*)malloc(sizeof(double)*p[gpuid]*height*k*batch);
+        host_swap_V[gpuid] = (double*)malloc(sizeof(double)*batch*width_perdevice*width/2);
         test_Fnorm[gpuid] = (double*)malloc(sizeof(double)*batch);
         host_pass[gpuid] = (unsigned*)malloc(sizeof(unsigned)*p[gpuid]*2*batch);
         host_allpass[gpuid] = (unsigned*)malloc(sizeof(unsigned)*batch);
@@ -249,9 +249,11 @@ for(int gpuid = 0;gpuid < num_gpus;++gpuid){
         cudaSetDevice(i);
         cudaStreamCreate(&stream[i]);
     }
-    for(int i = 0;i < num_gpus;++i){
-        cudaSetDevice(i);
-        cudaMemcpyAsync(dev_A[i],host_A+i*width_perdevice*height,sizeof(double)*width_perdevice*height,cudaMemcpyHostToDevice,stream[i]);
+    for(int number = 0;number < batch;++number){
+        for(int i = 0;i < num_gpus;++i){
+            cudaSetDevice(i);
+            cudaMemcpyAsync(dev_A[i],host_A+number*width*height+i*width_perdevice*height,sizeof(double)*width_perdevice*height,cudaMemcpyHostToDevice,stream[i]);
+        }
     }
     omp_set_num_threads(num_gpus);
     #pragma omp parallel
@@ -387,6 +389,7 @@ for(int gpuid = 0;gpuid < num_gpus;++gpuid){
     double* host_jointG = (double*)malloc(sizeof(double)*2*k*2*k);
     double* test_A = (double*)malloc(sizeof(double)*p[0]*k*height);
     double* test_aij = (double*)malloc(sizeof(double)*k);
+    double* test_V = (double*)malloc(sizeof(double)*width*width_perdevice);
     cudaError_t errf;
     while(!continue_flag){ 
         // part1
@@ -420,7 +423,7 @@ for(int gpuid = 0;gpuid < num_gpus;++gpuid){
         //test 1
         // printf("\nEVD1\n");
         
-        // cudaMemcpy(host_jointG,dev_jointG[0],sizeof(double)*4*k*k,cudaMemcpyDeviceToHost);
+        
         // for(int i = 0;i < 10;++i){
         //     printf("%f ",host_jointG[i]);
         // }
@@ -434,6 +437,7 @@ for(int gpuid = 0;gpuid < num_gpus;++gpuid){
                 for(int i = 0;i<num_gpus;++i){
                     cudaSetDevice(i);
                     cudaMemcpyAsync(host_swap_data[i],dev_A[i]+p[i]*k*height,sizeof(double)*p[i]*k*height,cudaMemcpyDeviceToHost,stream[i]);
+                    cudaMemcpyAsync(host_swap_V[i],dev_V[i]+width*width_perdevice/2,sizeof(double)*width*width_perdevice/2,cudaMemcpyDeviceToHost,stream[i]);
                 }
                 for(int per_time = 1;per_time <= init_time;++per_time){
                     for(int i = num_gpus/init_time * (per_time-1);i < num_gpus/init_time * per_time;++i){
@@ -448,6 +452,7 @@ for(int gpuid = 0;gpuid < num_gpus;++gpuid){
                         }    
                     }
                 }
+               
                 for(int i = 0;i < p[0];++i){
                     #pragma omp parallel
                     {
@@ -457,9 +462,12 @@ for(int gpuid = 0;gpuid < num_gpus;++gpuid){
                         generate_jointG21<<<dimGrid7, 256,0,stream[gpuid]>>>(dev_jointG[gpuid], dev_AiAi[gpuid], dev_AiAj[gpuid], dev_AjAj[gpuid], dev_Fnorm[gpuid], dev_pass[gpuid], p[gpuid], k, sliceNum, svd_tol);    //&1.3
                         MUL_EVD_1(stream[gpuid],dev_jointG[gpuid], dev_A[gpuid], dev_V[gpuid], dev_pairsOfEVD[gpuid], p[gpuid], q, height, width,width_perdevice, dev_roundRobin[gpuid], batch, k, slice, sliceNum, sweep); //&1.3
                     }    
-                }  
+                }
+               
+                // break;  
                 
             }
+            // break;
             // refresh new part
             init_time *= 2;
             if(init_time <= num_gpus){
@@ -472,6 +480,14 @@ for(int gpuid = 0;gpuid < num_gpus;++gpuid){
                         cudaMemcpyAsync(host_swap_V[g],dev_V[g]+diff_V,sizeof(double)*width_perdevice*width/2,cudaMemcpyDeviceToHost,stream[g]);
                     }        
                 }
+                // FILE* file_V1 = fopen("before_V.txt","w");
+                // cudaMemcpy(test_V,dev_V[1],sizeof(double)*width*width_perdevice,cudaMemcpyDeviceToHost);
+                // for(int i = 0;i < width_perdevice;++i){
+                //     for(int j = 0;j < width;++j){
+                //         fprintf(file_V1,"%f ",test_V[i*width+j]);
+                //     }
+                //     fprintf(file_V1,"\n");
+                // }
                 for(int i = 1;i <= init_time;++i){
                     int diff = i%2==1?p[0]*k*height:0;
                     int diff_V = i%2 == 1?width_perdevice*width/2:0;
@@ -480,15 +496,30 @@ for(int gpuid = 0;gpuid < num_gpus;++gpuid){
                         cudaSetDevice(g);
                         if(flag == 0){
                             cudaMemcpyAsync(dev_A[g]+diff,host_swap_data[g-num_gpus/init_time],sizeof(double)*p[g]*k*height,cudaMemcpyHostToDevice,stream[g]);
-                            cudaMemcpyAsync(dev_V[i]+diff_V,host_swap_V[g-num_gpus/init_time],sizeof(double)*width*width_perdevice/2,cudaMemcpyHostToDevice,stream[g]);
+                            cudaMemcpyAsync(dev_V[g]+diff_V,host_swap_V[g-num_gpus/init_time],sizeof(double)*width*width_perdevice/2,cudaMemcpyHostToDevice,stream[g]);
                         }
                         else{
                             cudaMemcpyAsync(dev_A[g]+diff,host_swap_data[g+num_gpus/init_time],sizeof(double)*p[g]*k*height,cudaMemcpyHostToDevice,stream[g]);
-                            cudaMemcpyAsync(dev_V[i]+diff_V,host_swap_V[g+num_gpus/init_time],sizeof(double)*width*width_perdevice/2,cudaMemcpyHostToDevice,stream[g]);
+                            cudaMemcpyAsync(dev_V[g]+diff_V,host_swap_V[g+num_gpus/init_time],sizeof(double)*width*width_perdevice/2,cudaMemcpyHostToDevice,stream[g]);
                         }
-                        }
-                           
-                    }        
+                        }    
+                    }
+                    // cudaMemcpy(host_jointG,dev_jointG[1],sizeof(double)*4*k*k,cudaMemcpyDeviceToHost);
+                    // cudaMemcpy(test_V,dev_V[1],sizeof(double)*width*width_perdevice,cudaMemcpyDeviceToHost);
+                    // FILE* file_V = fopen("after_V.txt","w");
+                    // for(int i = 0;i < width_perdevice;++i){
+                    //     for(int j = 0;j < width;++j){
+                    //         fprintf(file_V,"%f ",test_V[i*width+j]);
+                    //     }
+                    //     fprintf(file_V,"\n");
+                    // }
+                    // FILE* file_jointG = fopen("dev_jointG.txt","w");
+                    // for(int i = 0;i < 2*k;++i){
+                    //     for(int j = 0;j < 2*k;++j){
+                    //         fprintf(file_jointG,"%f ",host_jointG[i*2*k+j]);
+                    //     }
+                    //     fprintf(file_jointG,"\n");
+                    // }        
                 
                 for(int i = 0;i < p[0];++i){
                     #pragma omp parallel
@@ -502,6 +533,7 @@ for(int gpuid = 0;gpuid < num_gpus;++gpuid){
                 }  
             }      
         }
+        // break;
         #pragma omp parallel
         {
             int gpuid = omp_get_thread_num();
@@ -623,6 +655,18 @@ for(int gpuid = 0;gpuid < num_gpus;++gpuid){
             fprintf(file_V,"%lf ",host_V[i*width+j]);
         }
         fprintf(file_V,"\n");
+    }
+    double* test_hostA = (double*)malloc(sizeof(double)*height*width);
+    for(int i = 0;i < num_gpus;++i){
+        cudaSetDevice(i);
+        cudaMemcpyAsync(test_hostA+i*height*width_perdevice,dev_A[i],sizeof(double)*width_perdevice*height,cudaMemcpyDeviceToHost,stream[i]);
+     }
+     FILE* file_A = fopen("dev_A.txt","w");
+     for(int i  = 0;i < width;++i){
+        for(int j =0;j < height;++j){
+            fprintf(file_A,"%lf ",test_hostA[i*height+j]);
+        }
+        fprintf(file_A,"\n");
     }
     // for(int i = 0;i < num_gpus;++i){
     //     cudaSetDevice(i);
