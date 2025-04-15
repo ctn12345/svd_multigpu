@@ -1542,10 +1542,10 @@ __global__ void Multi_updateBlockColumn2_16(double *dev_A, double *dev_V, double
 	{
 		if (true)
 		{
-			sm_A[tid] = dev_A[blockIdx.z * height*width + (index[0] * k + locy) * height + blockIdx.x * slice + t * 32 + locx];
-			sm_A[tid + 256] = dev_A[blockIdx.z * height * width + (index[0] * k + locy + 8) * height + blockIdx.x * slice + t * 32 + locx];
-			sm_A[tid + 512] = dev_A[blockIdx.z * height * width + (index[1] * k + locy) * height + blockIdx.x * slice + t * 32 + locx];
-			sm_A[tid + 768] = dev_A[blockIdx.z * height * width + (index[1] * k + locy + 8) * height + blockIdx.x * slice + t * 32 + locx];
+			sm_A[tid] = dev_A[blockIdx.z * height*width_perdevice + (index[0] * k + locy) * height + blockIdx.x * slice + t * 32 + locx];
+			sm_A[tid + 256] = dev_A[blockIdx.z * height * width_perdevice + (index[0] * k + locy + 8) * height + blockIdx.x * slice + t * 32 + locx];
+			sm_A[tid + 512] = dev_A[blockIdx.z * height * width_perdevice + (index[1] * k + locy) * height + blockIdx.x * slice + t * 32 + locx];
+			sm_A[tid + 768] = dev_A[blockIdx.z * height * width_perdevice + (index[1] * k + locy + 8) * height + blockIdx.x * slice + t * 32 + locx];
 			if ((blockIdx.x * slice + t * 32 + locx) < width)
 			{
 				sm_V[tid] = dev_V[blockIdx.z * width_perdevice * width + (index[0] * k + locy) * width + blockIdx.x * slice + t * 32 + locx];
@@ -1589,10 +1589,10 @@ __global__ void Multi_updateBlockColumn2_16(double *dev_A, double *dev_V, double
 			}
 			__syncthreads();
 
-			dev_A[blockIdx.z * height * width + (index[0] * k + locy) * height + blockIdx.x * slice + t * 32 + locx] = Avalue1;
-			dev_A[blockIdx.z * height * width + (index[0] * k + locy + 8) * height + blockIdx.x * slice + t * 32 + locx] = Avalue11;
-			dev_A[blockIdx.z * height * width + (index[1] * k + locy) * height + blockIdx.x * slice + t * 32 + locx] = Avalue2;
-			dev_A[blockIdx.z * height * width + (index[1] * k + locy + 8) * height + blockIdx.x * slice + t * 32 + locx] = Avalue22;
+			dev_A[blockIdx.z * height * width_perdevice + (index[0] * k + locy) * height + blockIdx.x * slice + t * 32 + locx] = Avalue1;
+			dev_A[blockIdx.z * height * width_perdevice + (index[0] * k + locy + 8) * height + blockIdx.x * slice + t * 32 + locx] = Avalue11;
+			dev_A[blockIdx.z * height * width_perdevice + (index[1] * k + locy) * height + blockIdx.x * slice + t * 32 + locx] = Avalue2;
+			dev_A[blockIdx.z * height * width_perdevice + (index[1] * k + locy + 8) * height + blockIdx.x * slice + t * 32 + locx] = Avalue22;
 
 			if ((blockIdx.x * slice + t * 32 + locx) < width)
 			{
@@ -3339,6 +3339,67 @@ __global__ void getUDV(double *dev_A, double *dev_U, double *dev_I, double *dev_
 			if ((j * 32 + threadIdx.x) < width0 && (blockIdx.x * k + threadIdx.y) < width0)
 			{
 				dev_V[blockIdx.y * width0 * width0 + (blockIdx.x * k + threadIdx.y) * width0 + j * 32 + threadIdx.x] = dev_I[blockIdx.y * width * width + (blockIdx.x * k + threadIdx.y) * width + j * 32 + threadIdx.x];
+			}
+		}
+	}
+}
+
+__global__ void Mul_getUDV(double *dev_A, double *dev_U, double *dev_I, double *dev_V, int height, int width, int height0, int width0,int width_all, int p, int q, double *dev_diag, int minSideLen, int k)
+{
+	__shared__ double shared_A[32][16];
+	__shared__ double sqrtSum[16];
+	double temp1 = 0;
+	for (int j = 0; j < q; j++)
+	{
+		shared_A[threadIdx.x][threadIdx.y] = dev_A[blockIdx.y * height * width + (blockIdx.x * k + threadIdx.y) * height + j * 32 + threadIdx.x];
+		__syncthreads();
+		if (threadIdx.y == 0 && threadIdx.x < k)
+		{
+			for (int i = 0; i < 32; i++)
+			{
+				temp1 += shared_A[i][threadIdx.x] * shared_A[i][threadIdx.x];
+			}
+		}
+		__syncthreads();
+	}
+	if (threadIdx.y == 0 && threadIdx.x < k)
+	{
+		sqrtSum[threadIdx.x] = sqrt(temp1);
+		if ((blockIdx.x * k + threadIdx.x) < width0)
+		{
+			dev_diag[blockIdx.y * minSideLen + blockIdx.x * k + threadIdx.x] = sqrtSum[threadIdx.x];
+		}
+	}
+	__syncthreads();
+	if (height0 >= width0)
+	{
+		///get U
+		double temp2;
+		for (int j = 0; j < q; j++)
+		{
+			shared_A[threadIdx.x][threadIdx.y] = dev_A[blockIdx.y * height * width + (blockIdx.x * k + threadIdx.y) * height + j * 32 + threadIdx.x];
+			__syncthreads();
+			if (sqrtSum[threadIdx.y] != 0)
+			{
+				temp2 = shared_A[threadIdx.x][threadIdx.y] / sqrtSum[threadIdx.y];
+			}
+			else
+			{
+				temp2 = 0;
+			}
+			if ((j * 32 + threadIdx.x) < height0 && (blockIdx.x * k + threadIdx.y) < width0)
+			{
+				dev_U[blockIdx.y * height0 * height0 + (blockIdx.x * k + threadIdx.y) * height0 + j * 32 + threadIdx.x] = temp2;
+			}
+			__syncthreads();
+		}
+		__syncthreads();
+		////get V
+		for (int j = 0; j < q; j++)
+		{
+			if ((j * 32 + threadIdx.x) < width0 && (blockIdx.x * k + threadIdx.y) < width_all)
+			{
+				dev_V[blockIdx.y * width0 * width_all + (blockIdx.x * k + threadIdx.y) * width0 + j * 32 + threadIdx.x] = dev_I[blockIdx.y * width * width + (blockIdx.x * k + threadIdx.y) * width + j * 32 + threadIdx.x];
 			}
 		}
 	}
