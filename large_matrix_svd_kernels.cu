@@ -500,8 +500,11 @@ __global__ void generate_jointG00_1(int* pab,double *dev_A, int height, int widt
 
     if (tid == 0)
     {
-        index[0] = pab[2*iterNum*gridDim.y+blockIdx.y*2];
-        index[1] = pab[2*iterNum*gridDim.y+blockIdx.y*2+1];
+		int temp_1 = 2*iterNum*gridDim.y+blockIdx.y*2;
+        index[0] = pab[temp_1];
+        index[1] = pab[temp_1+1];
+		// index[0] = pab[2*iterNum*gridDim.y+blockIdx.y*2];
+        //  index[1] = pab[2*iterNum*gridDim.y+blockIdx.y*2+1];
         dev_pairsOfEVD[2 * (blockIdx.z * p + blockIdx.y)] = index[0];
         dev_pairsOfEVD[2 * (blockIdx.z * p + blockIdx.y) + 1] = index[1];
 
@@ -3389,7 +3392,7 @@ __global__ void Mul_getUDV(double *dev_A, double *dev_U, double *dev_I, double *
 			}
 			if ((j * 32 + threadIdx.x) < height0 && (blockIdx.x * k + threadIdx.y) < width0)
 			{
-				dev_U[blockIdx.y * height0 * height0 + (blockIdx.x * k + threadIdx.y) * height0 + j * 32 + threadIdx.x] = temp2;
+				dev_U[blockIdx.y * height0 * width0 + (blockIdx.x * k + threadIdx.y) * height0 + j * 32 + threadIdx.x] = temp2;
 			}
 			__syncthreads();
 		}
