@@ -9,6 +9,8 @@ This project includes code from the following open-source projects:
 
 The original license terms are included in the `LICENSE-THIRD-PARTY.txt` file.
 
+This project is still in development.And this is my Graduation project.It still has some details that are not perfect.And I will show my results in the future.And now I am trying to improve my algrothim.
+
 # 算法步骤
 我的目标实现:一个可以利用多GPU来批处理svd的良好算法。
 功能实现:我目前可以基于多GPU进行批处理矩阵SVD分解算法。我的工作重点是将数据交换策略进行落地，并且基于多GPU对于一些cuda算子对开源代码进行添加和修改。
@@ -25,26 +27,14 @@ The original license terms are included in the `LICENSE-THIRD-PARTY.txt` file.
 
 
 
-
-# 开始命令 测试部分
-```
-    nvcc -g -G ourtest2-24-success.cu -o singletest -lcusolver -lcublas
-    ./singletest
-```
-# 开始命令 stream部分
-```
-    nvcc -g -G -Xcompiler -fopenmp  ourtest.cu -o test  -lcusolver -lcublas
-    ./test
-```
 # 分析nsight system命令
 ```
     nsys profile -o my_system_report ./your_cuda_program -lnvToolsExt
 ```
 
-# 测试多GPU代码
+# main programa go
 ```
-    nvcc  -g -G -Xcompiler -fopenmp paralle_sort_once.cu -o test -lcusolver -lcublas 
-    ./test
+    nvcc  -Xcompiler -fopenmp Fin_batch.cu -o batch -lcusolver -lcublas -lnvToolsExt 
 ```
-
+(other program is just used to test !!!!!!!!!!)
 
