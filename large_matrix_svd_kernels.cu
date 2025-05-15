@@ -1518,9 +1518,9 @@ __global__ void updateBlockColumn2_8_plus(double *dev_A, double *dev_V, double *
 // <<< (sliceNum, p, batch), 256 >>>
 __global__ void updateBlockColumn2_16(double *dev_A, double *dev_V, double *dev_jointG, int *dev_pairsOfEVD, int p, int q, int height, int width, int k, int slice)
 {
-	__shared__ double sm_A[32 * 16 * 2];	// 1024
-	__shared__ double sm_V[32 * 16 * 2];	// 1024
-	__shared__ double sm_G[32][32];			// 1024
+	__shared__ float sm_A[32 * 16 * 2];	// 1024
+	__shared__ float sm_V[32 * 16 * 2];	// 1024
+	__shared__ float sm_G[32][32];			// 1024
 	__shared__ unsigned index[2];
 	int iter = slice / 32;
 	int tid = threadIdx.x;	// 0~255
@@ -1538,14 +1538,14 @@ __global__ void updateBlockColumn2_16(double *dev_A, double *dev_V, double *dev_
 	}
 	__syncthreads();
 
-	double Avalue1 = 0.0;
-	double Avalue11 = 0.0;
-	double Avalue2 = 0.0;
-	double Avalue22 = 0.0;
-	double Ivalue1 = 0.0;
-	double Ivalue11 = 0.0;
-	double Ivalue2 = 0.0;
-	double Ivalue22 = 0.0;
+	float Avalue1 = 0.0;
+	float Avalue11 = 0.0;
+	float Avalue2 = 0.0;
+	float Avalue22 = 0.0;
+	float Ivalue1 = 0.0;
+	float Ivalue11 = 0.0;
+	float Ivalue2 = 0.0;
+	float Ivalue22 = 0.0;
 	
 	for (int t = 0; t < iter; t++)
 	{
@@ -3924,7 +3924,7 @@ __global__ void judgeFunc(unsigned *dev_allpass, unsigned *dev_pass, int length)
 
 //dim3 dimGrid10(2 * p, batch, 1);
 //dim3 dimBlock10(32, k, 1);(dev_A, dev_U, dev_V, dev_V0, height, width, height0, width0, p, q, dev_diag, width0,k);
-__global__ void getUDV(double *dev_A, double *dev_U, double *dev_I, double *dev_V, int height, int width, int height0, int width0, int p, int q, double *dev_diag, int minSideLen, int k)
+__global__ void getUDV(double *dev_A, double *dev_U, double *dev_I, int height, int width, int height0, int width0, int p, int q, double *dev_diag, int minSideLen, int k)
 {
 	__shared__ double shared_A[32][16];
 	__shared__ double sqrtSum[16];
@@ -3974,14 +3974,14 @@ __global__ void getUDV(double *dev_A, double *dev_U, double *dev_I, double *dev_
 			__syncthreads();
 		}
 		__syncthreads();
-		////get V
-		for (int j = 0; j < q; j++)
-		{
-			if ((j * 32 + threadIdx.x) < width0 && (blockIdx.x * k + threadIdx.y) < width0)
-			{
-				dev_V[blockIdx.y * width0 * width0 + (blockIdx.x * k + threadIdx.y) * width0 + j * 32 + threadIdx.x] = dev_I[blockIdx.y * width * width + (blockIdx.x * k + threadIdx.y) * width + j * 32 + threadIdx.x];
-			}
-		}
+		// ////get V
+		// for (int j = 0; j < q; j++)
+		// {
+		// 	if ((j * 32 + threadIdx.x) < width0 && (blockIdx.x * k + threadIdx.y) < width0)
+		// 	{
+		// 		dev_V[blockIdx.y * width0 * width0 + (blockIdx.x * k + threadIdx.y) * width0 + j * 32 + threadIdx.x] = dev_I[blockIdx.y * width * width + (blockIdx.x * k + threadIdx.y) * width + j * 32 + threadIdx.x];
+		// 	}
+		// }
 	}
 }
 
