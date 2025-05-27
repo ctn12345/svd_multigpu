@@ -110,10 +110,10 @@ void test17(){
     cudaGetDeviceCount(&num_gpus);
     printf("nums gpu is %d\n ",num_gpus);
     int gpu0=0,gpu1=1;
-    num_gpus = 2;
+    // num_gpus = 2;
     int batch = 1;
-    int height = 16384;
-    int width = 16384;
+    int height = 8192;
+    int width = 8192;
     int th=0, tw=0;
     // int shape[3] = {batch, height, width};
     int minmn = height > width/num_gpus ? width/num_gpus : height;
@@ -301,7 +301,9 @@ for(int gpuid = 0;gpuid < num_gpus;++gpuid){
             cudaMemcpyAsync(dev_A[i]+number*width_perdevice*height,host_A+number*width*height+i*width_perdevice*height,sizeof(double)*width_perdevice*height,cudaMemcpyHostToDevice,stream[i]);
         }
     }
-    double* test_A = (double*)malloc(sizeof(double)*2*p[0]*k*height*batch);
+    // double* test_A = (double*)malloc(sizeof(double)*2*p[0]*k*height*batch);
+    double compute_time = 0;
+    double t1 = omp_get_wtime();
     omp_set_num_threads(num_gpus);
     #pragma omp parallel
     {
@@ -309,7 +311,7 @@ for(int gpuid = 0;gpuid < num_gpus;++gpuid){
         cudaSetDevice(gpuid);
         Multi_init_dev_V<<<batch,256,0,stream[gpuid]>>>(dev_V[gpuid],width_perdevice,width,gpuid);
     }
-    double* test_V = (double*)malloc(sizeof(double)*width_perdevice*width*batch);
+    // double* test_V = (double*)malloc(sizeof(double)*width_perdevice*width*batch);
     clock_t c1 = clock();
     dim3 dimGrid0(1, 1, 1);
     dim3 dimBlock0(32, 32, 1);
@@ -327,20 +329,27 @@ for(int gpuid = 0;gpuid < num_gpus;++gpuid){
         getRankNewNew_2<<<1,1024,0,stream[gpuid]>>>(2*p[gpuid],dev_pab[gpuid],dev_pa[gpuid],dev_pb[gpuid]);
         getRankNewNew_1<<<1,1024,0,stream[gpuid]>>>(p[gpuid],dev_pa1[gpuid],dev_pb1[gpuid],dev_pab1[gpuid]);
     }
+    double t2 = omp_get_wtime();
+    compute_time += (t2-t1);
     int sweep = 0,maxsweep = 21;
-    double svd_tol = 1e-7;
+    double svd_tol = 1e-8;
+    if(num_gpus == 2){
+        svd_tol = 1e-8;
+    }
     int* raw_host_order = (int*)malloc(sizeof(int)*2*p[0]*num_gpus*batch);
+    t1 = omp_get_wtime();
     #pragma omp parallel
     {
         int gpuid = omp_get_thread_num();
         cudaSetDevice(gpuid);
         compute_norm<<<2 * p[gpuid] * batch, 128,0,stream[gpuid]>>>(dev_A[gpuid], dev_norm[gpuid], dev_order[gpuid], height, width_perdevice, p[gpuid], q, k);
         binoticSort_original<<<batch, 1024,0,stream[gpuid]>>>(dev_norm[gpuid], dev_order[gpuid], 2 * p[gpuid], p[gpuid]);
-        
     } 
+    t2 = omp_get_wtime();
+    compute_time += (t2-t1);
     // cudaDeviceSynchronize();
-    double* test_norm = (double*)malloc(sizeof(double)*2*p[0]*batch);
-    cudaMemcpyAsync(test_norm,dev_norm[1],sizeof(double)*2*p[0]*batch,cudaMemcpyDeviceToHost);
+    // double* test_norm = (double*)malloc(sizeof(double)*2*p[0]*batch);
+    // cudaMemcpyAsync(test_norm,dev_norm[1],sizeof(double)*2*p[0]*batch,cudaMemcpyDeviceToHost);
     for(int i = 0;i < num_gpus;++i){
         cudaSetDevice(i);
         cudaMemcpyAsync(host_order+i*2*p[i]*batch,dev_order[i],sizeof(unsigned int)*2*p[i]*batch,cudaMemcpyDeviceToHost,stream[i]);
@@ -368,6 +377,7 @@ for(int gpuid = 0;gpuid < num_gpus;++gpuid){
             printf("%d ",raw_host_order[number*2*p[0]*num_gpus+i]);
         }
     }
+    t1 = omp_get_wtime();
     #pragma omp parallel
     {
         int gpuid = omp_get_thread_num();
@@ -381,6 +391,8 @@ for(int gpuid = 0;gpuid < num_gpus;++gpuid){
         // cudaDeviceSynchronize();
         computeFnorm2<<<batch, 32,0,stream[gpuid]>>>(dev_tempFnorm[gpuid], dev_Fnorm[gpuid], p[gpuid]);  //&1.3
     }
+    t2 = omp_get_wtime();
+    compute_time +=(t2-t1);
     // printf("cudamemcpy error start \n");
     for(int i = 0;i < num_gpus;++i){
         cudaSetDevice(i);
@@ -406,9 +418,9 @@ for(int gpuid = 0;gpuid < num_gpus;++gpuid){
     int* host_order_total = (int*)malloc(sizeof(int)*2*p[0]*num_gpus*batch);
     // printf("FIN Form %f \n",Fin_Fnorm[0]);
     // return;
-    double* host_jointG = (double*)malloc(sizeof(double)*2*k*2*k*p[0]*batch);
+    // double* host_jointG = (double*)malloc(sizeof(double)*2*k*2*k*p[0]*batch);
     
-    double* test_aij = (double*)malloc(sizeof(double)*k);
+    // double* test_aij = (double*)malloc(sizeof(double)*k);
     // double* test_V = (double*)malloc(sizeof(double)*width*width_perdevice);
     cudaError_t errf;
     double total_time = 0;
@@ -424,7 +436,7 @@ for(int gpuid = 0;gpuid < num_gpus;++gpuid){
         
         omp_set_num_threads(num_gpus);
         nvtxMark("start Compute Phase");
-        
+        t1 = omp_get_wtime();
         for(int i = 0;i < 2*p[0]-1;++i){
             #pragma omp parallel
             {
@@ -457,7 +469,8 @@ for(int gpuid = 0;gpuid < num_gpus;++gpuid){
         // }
         // return;
         }
-        
+        t2 = omp_get_wtime();
+        compute_time += (t2-t1);
         
         
         nvtxMark("finish Compute Phase");
@@ -495,7 +508,7 @@ for(int gpuid = 0;gpuid < num_gpus;++gpuid){
                     }
                 }
                 
-                
+                t1 = omp_get_wtime();
                 for(int i = 0;i < p[0];++i){
                     #pragma omp parallel
                     {
@@ -505,7 +518,9 @@ for(int gpuid = 0;gpuid < num_gpus;++gpuid){
                         generate_jointG21<<<dimGrid7, 256,0,stream[gpuid]>>>(dev_jointG[gpuid], dev_AiAi[gpuid], dev_AiAj[gpuid], dev_AjAj[gpuid], dev_Fnorm[gpuid], dev_pass[gpuid], p[gpuid], k, sliceNum, svd_tol);    //&1.3
                         MUL_EVD_1(stream[gpuid],dev_jointG[gpuid], dev_A[gpuid], dev_V[gpuid], dev_pairsOfEVD[gpuid], p[gpuid], q, height, width,width_perdevice, dev_roundRobin[gpuid], batch, k, slice, sliceNum, sweep); //&1.3
                     }    
-                }        
+                }    
+                t2 = omp_get_wtime();
+                compute_time += (t2-t1);    
             }
             init_time *= 2;
             if(init_time <= num_gpus){
@@ -547,6 +562,7 @@ for(int gpuid = 0;gpuid < num_gpus;++gpuid){
                         }
                         }           
                     }
+                t1 = omp_get_wtime();
                 for(int i = 0;i < p[0];++i){
                     #pragma omp parallel
                     {
@@ -557,10 +573,12 @@ for(int gpuid = 0;gpuid < num_gpus;++gpuid){
                         MUL_EVD_1(stream[gpuid],dev_jointG[gpuid], dev_A[gpuid], dev_V[gpuid], dev_pairsOfEVD[gpuid], p[gpuid], q, height, width,width_perdevice, dev_roundRobin[gpuid], batch, k, slice, sliceNum, sweep); //&1.3
                     }    
                 }  
+                t2 = omp_get_wtime();
+                compute_time += (t2-t1);
             }      
         }
         
-        
+        t1 = omp_get_wtime();
         #pragma omp parallel
         {
             int gpuid = omp_get_thread_num();
@@ -569,6 +587,8 @@ for(int gpuid = 0;gpuid < num_gpus;++gpuid){
             compute_norm<<<2 * p[gpuid] * batch, 128,0,stream[gpuid]>>>(dev_A[gpuid], dev_norm[gpuid], dev_order[gpuid], height, width_perdevice, p[gpuid], q, k);
             binoticSort_original<<<batch, 1024,0,stream[gpuid]>>>(dev_norm[gpuid], dev_order[gpuid], 2 * p[gpuid], p[gpuid]);
         } 
+        t2 = omp_get_wtime();
+        compute_time += (t2-t1);
         for(int i = 0;i < num_gpus;++i){
             cudaSetDevice(i);
             cudaMemcpyAsync(host_order+i*2*p[i]*batch,dev_order[i],sizeof(int)*2*p[i]*batch,cudaMemcpyDeviceToHost,stream[i]);
@@ -591,18 +611,18 @@ for(int gpuid = 0;gpuid < num_gpus;++gpuid){
                 cudaMemcpyAsync(host_V+number*width*width+i*width_perdevice*width,dev_V[i]+number*width_perdevice*width,sizeof(double)*width_perdevice*width,cudaMemcpyDeviceToHost,stream[i]);
             }
         }
-        FILE* fileu = fopen("devbbb.txt","w");
-        // cudaMemcpy(&host_A[0],dev_A[0],sizeof(double)*width_perdevice*height,cudaMemcpyDeviceToHost);
-        // cudaMemcpy(&host_A[width_perdevice*height],dev_A[1],sizeof(double)*width_perdevice*height,cudaMemcpyDeviceToHost);
-        for(int i = 0;i < batch;++i){
-            for(int g = 0;g < 10;++g){
-                for(int u = 0;u < 10;++u){
-                    fprintf(fileu,"%f ",host_A[i*height*width+g*height+u]);
-                }
-                fprintf(fileu,"\n");
-            }   
-        }
-        return;
+        // FILE* fileu = fopen("devbbb.txt","w");
+        // // cudaMemcpy(&host_A[0],dev_A[0],sizeof(double)*width_perdevice*height,cudaMemcpyDeviceToHost);
+        // // cudaMemcpy(&host_A[width_perdevice*height],dev_A[1],sizeof(double)*width_perdevice*height,cudaMemcpyDeviceToHost);
+        // for(int i = 0;i < batch;++i){
+        //     for(int g = 0;g < 10;++g){
+        //         for(int u = 0;u < 10;++u){
+        //             fprintf(fileu,"%f ",host_A[i*height*width+g*height+u]);
+        //         }
+        //         fprintf(fileu,"\n");
+        //     }   
+        // }
+        // return;
         int cnt = 0;
         for(int number = 0;number < batch;++number){
             for(int i = 0;i<num_gpus;++i){
@@ -623,12 +643,15 @@ for(int gpuid = 0;gpuid < num_gpus;++gpuid){
 
         
         ++sweep;
+        t1 = omp_get_wtime();
         #pragma omp parallel
         {
             int gpuid = omp_get_thread_num();
             cudaSetDevice(gpuid);
             judgeFunc<<<batch, 1024,0,stream[gpuid]>>>(dev_allpass[gpuid], dev_pass[gpuid], p[gpuid]);   // concentrate each block's result(converged or not)
         }
+        t2 = omp_get_wtime();
+        compute_time+=(t2-t1);
         bool tempFlag = true;
         for(int i = 0;i < num_gpus;++i){
             cudaMemcpy(host_allpass[i],dev_allpass[i],sizeof(unsigned)*batch,cudaMemcpyDeviceToHost);
@@ -648,6 +671,7 @@ for(int gpuid = 0;gpuid < num_gpus;++gpuid){
         }
         
     }
+    t1 = omp_get_wtime();
      #pragma omp parallel
      {
         //  int gpuid = omp_get_thread_num();
@@ -661,9 +685,11 @@ for(int gpuid = 0;gpuid < num_gpus;++gpuid){
          Mul_getUDV<<<dimGrid10, dimBlock10,0,stream[gpuid]>>>(dev_A[gpuid], dev_U[gpuid], dev_V[gpuid], height, width_perdevice, height, width_perdevice,width, p[gpuid], height/32, dev_diag[gpuid], width_perdevice, k);  //&1.3
      }
      double t_end = omp_get_wtime();
+     compute_time += (t_end-t1);
      clock_t c2 = clock();
     //  printf("it costs %f s\n",(double)(c2-c1)/CLOCKS_PER_SEC); 
      printf("Total compute time = %.3f s\n", t_end - t_start);
+      printf("Total kernrl compute time = %.3f s\n", compute_time);
     //  cudaError_t err1 = cudaGetLastError();
     // if (err1 != cudaSuccess) {
     //     printf("CUDA Error: %s\n", cudaGetErrorString(err1));

@@ -301,7 +301,10 @@ for(int gpuid = 0;gpuid < num_gpus;++gpuid){
         getRankNewNew_1<<<1,1024,0,stream[gpuid]>>>(p[gpuid],dev_pa1[gpuid],dev_pb1[gpuid],dev_pab1[gpuid]);
     }
     int sweep = 0,maxsweep = 21;
-    double svd_tol = 1e-7;
+    double svd_tol = 1e-9;
+    if(num_gpus == 2){
+        svd_tol = 1e-8;
+    }
     int** raw_host_order = (int**)malloc(sizeof(int*)*gpu_group);
 
     for(int group_id=0;group_id<gpu_group;++group_id){
@@ -672,15 +675,15 @@ for(int gpuid = 0;gpuid < num_gpus;++gpuid){
      time_total += (t_end-t_start);
     // printf("width_perdevide %d  %d \n",width_perdevice,minmn);
      printf("sweep:%d \n",sweep);
-    for(int group_id=0;group_id<gpu_group;++group_id){
-        for(int number=0;number < batch_size;++number){
-            for(int gpuid=0;gpuid < require_gpu;++gpuid){
-                cudaMemcpyAsync(&host_diag[group_id*batch_size*width+gpuid*width_perdevice+number*width],dev_diag[group_id*require_gpu+gpuid]+number*width_perdevice,sizeof(double)*width_perdevice,cudaMemcpyDeviceToHost,stream[group_id*require_gpu+gpuid]);
-                cudaMemcpyAsync(&host_U[group_id*batch_size*width*height+gpuid*width_perdevice*height+number*width*height],dev_U[group_id*require_gpu+gpuid]+number*width_perdevice*height,sizeof(double)*width_perdevice*height,cudaMemcpyDeviceToHost,stream[group_id*require_gpu+gpuid]);
-                cudaMemcpyAsync(&host_V[group_id*batch_size*width*width+gpuid*width_perdevice*width+number*width*width],dev_V[group_id*require_gpu+gpuid]+number*width_perdevice*width,sizeof(double)*width_perdevice*width,cudaMemcpyDeviceToHost,stream[group_id*require_gpu+gpuid]);
-            }
-        }     
-    }
+    // for(int group_id=0;group_id<gpu_group;++group_id){
+    //     for(int number=0;number < batch_size;++number){
+    //         for(int gpuid=0;gpuid < require_gpu;++gpuid){
+    //             cudaMemcpyAsync(&host_diag[group_id*batch_size*width+gpuid*width_perdevice+number*width],dev_diag[group_id*require_gpu+gpuid]+number*width_perdevice,sizeof(double)*width_perdevice,cudaMemcpyDeviceToHost,stream[group_id*require_gpu+gpuid]);
+    //             cudaMemcpyAsync(&host_U[group_id*batch_size*width*height+gpuid*width_perdevice*height+number*width*height],dev_U[group_id*require_gpu+gpuid]+number*width_perdevice*height,sizeof(double)*width_perdevice*height,cudaMemcpyDeviceToHost,stream[group_id*require_gpu+gpuid]);
+    //             cudaMemcpyAsync(&host_V[group_id*batch_size*width*width+gpuid*width_perdevice*width+number*width*width],dev_V[group_id*require_gpu+gpuid]+number*width_perdevice*width,sizeof(double)*width_perdevice*width,cudaMemcpyDeviceToHost,stream[group_id*require_gpu+gpuid]);
+    //         }
+    //     }     
+    // }
     //  double** host_diag = (double**)malloc(sizeof(double*)*num_gpus);
     //  for(int i = 0;i < num_gpus;++i){
     //      host_diag[i] = (double*)malloc(sizeof(double)*minmn*batch);
@@ -768,15 +771,28 @@ for(int gpuid = 0;gpuid < num_gpus;++gpuid){
     // free(host_V);
     // free(host_U);
     // free(host_diag);
-    free(host_swap_data);
-    free(host_swap_V);
-    free(test_Fnorm);
-    free(host_allpass);
+    for(int i = 0;i < gpu_group;++i){
+        free(host_index[i]);
+        free(raw_host_order[i]);
+        free(host_order_total[i]);
+        free(host_order[i]);
+        free(Fin_Fnorm[i]);
+    }
+    for(int i = 0;i < num_gpus;++i){
+        free(host_swap_data[i]);
+        free(host_swap_V[i]);
+        free(test_Fnorm[i]);
+        free(host_allpass[i]);
+    }
     free(host_index);
     free(raw_host_order);
     free(host_order_total);
     free(host_order);
     free(Fin_Fnorm);
+    free(host_swap_data);
+    free(host_swap_V);
+    free(test_Fnorm);
+    free(host_allpass);
 
 }
 
@@ -1135,8 +1151,8 @@ int main(int argc, char* argv[]){
     // 获取 GPU 数量
     cudaGetDeviceCount(&num_gpus);
     num_gpus = 2;
-    int height = 17408;
-    int width = 17408;
+    int height = 18432;
+    int width = 18432;
     
     cudaDeviceProp prop;
     // 获取设备属性
@@ -1241,27 +1257,27 @@ int main(int argc, char* argv[]){
     // double t_end = omp_get_wtime();
     printf("batch svd time %f \n",time_1);
     
-    // for(int number=0;number < batch;++number){
-    //     for(int w = 0;w < width;++w){
-    //         fprintf(file_diag,"%f ",host_diag[number*width+w]);
-    //     }
-    //     fprintf(file_diag,"\n");
-    //     for(int w = 0;w < width;++w){
-    //         for(int h =0;h < height;++h){
-    //             fprintf(file_U,"%f ",host_U[number*width*height+w*height+h]);
-    //         }
-    //         fprintf(file_U,"\n");
-    //     }
+    for(int number=0;number < batch;++number){
+        for(int w = 0;w < width;++w){
+            fprintf(file_diag,"%f ",host_diag[number*width+w]);
+        }
+        fprintf(file_diag,"\n");
+        for(int w = 0;w < width;++w){
+            for(int h =0;h < height;++h){
+                fprintf(file_U,"%f ",host_U[number*width*height+w*height+h]);
+            }
+            fprintf(file_U,"\n");
+        }
         
-    //     for(int w = 0;w < width;++w){
-    //         for(int h = 0;h < width;++h){
-    //             fprintf(file_V,"%f ",host_V[number*width*width+w*width+h]);
-    //         }
-    //         fprintf(file_V,"\n");
-    //     }
+        for(int w = 0;w < width;++w){
+            for(int h = 0;h < width;++h){
+                fprintf(file_V,"%f ",host_V[number*width*width+w*width+h]);
+            }
+            fprintf(file_V,"\n");
+        }
         
 
-    // }
+    }
 
     free(host_A);
     free(host_V);

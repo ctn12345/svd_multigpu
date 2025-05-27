@@ -11,7 +11,7 @@ def perform_svd(matrix):
     U, S, Vt = np.linalg.svd(matrix)
     return U, S, Vt
 
-size_1 = 128
+size_1 = 8192
 file_path = "./data/generated_matrixes/A_h"+str(size_1)+"_w"+str(size_1)+".txt"
 
 # 读取矩阵
@@ -20,7 +20,7 @@ matrix_all = read_matrix_from_file(file_path)
 # print(len(matrix_all))
 # batch = len(matrix_all)/(size_1*size_1)
 # batch = int(batch)
-batch = 2
+batch = 1
 print("batch "+str(batch))
 dev_V_all = np.loadtxt("dev_V.txt")
 dev_V_all = dev_V_all.reshape(1,-1)
@@ -32,6 +32,9 @@ diag_arr = diag_arr.reshape((1,-1))
 dev_U = np.zeros((1,size_1*size_1))
 dev_V = np.zeros((1,size_1*size_1))
 dev_diag = np.zeros((1,size_1))
+diff_mat=[]
+diff_U=[]
+diff_V=[]
 for number in range(batch):
     # begin = size_1*size_1*number
     # end = size_1*size_1*(number+1)
@@ -80,25 +83,62 @@ for number in range(batch):
     # print(dev_U.shape)
     # print(dev_diag.shape)
     # break
+    my_U = dev_U
+    tmpU = U.T
+    for i in range(my_U.shape[1]):
+        if my_U[i][0]*tmpU[i][0] < 0:
+            my_U[i] = -my_U[i]  # 整行取负
+    my_U = my_U.T
+    my_V = dev_V
+    for i in range(my_V.shape[0]):
+        if my_V[i][0]*Vt[i][0] < 0:
+            my_V[i] = -my_V[i]  # 整行取负
+    raw_matrix = matrix.T
+    result_matrix = my_U*dev_diag@my_V
     print("raw matrix")
-    print(U*S@Vt)
+    print(raw_matrix)
     print("my result matrix")
-    print(dev_U.T*dev_diag@dev_V)
+    print(result_matrix)
+    print("--------------------------------------------------------------------------------")
+    print("--------------------------------------------------------------------------------")
+    print("--------------------------------------------------------------------------------")
+    print("diag python")
+    print(S)
+    print("diag my result")
+    print(dev_diag)
 
     print("--------------------------------------------------------------------------------")
     print("--------------------------------------------------------------------------------")
     print("--------------------------------------------------------------------------------")
+    for i in range(my_U.shape[0]):
+        if my_U[i][0]*U[i][0] < 0:
+            my_U[i] = -my_U[i]  # 整行取负
     print("U python")
     print(U)
     print("U my result")
-    print(dev_U.T)
+    print(my_U)
 
     print("--------------------------------------------------------------------------------")
     print("--------------------------------------------------------------------------------")
     print("--------------------------------------------------------------------------------")
-
+    
     print("V python")
     print(Vt)
     print("V my result")
-    print(dev_V)
+    print(my_V)
+    relative_errormat = np.linalg.norm(result_matrix - raw_matrix, ord='fro') / np.linalg.norm(raw_matrix, ord='fro')
+    relative_errorU = np.linalg.norm(my_U - U, ord='fro') / np.linalg.norm(U, ord='fro')
+    relative_errorV = np.linalg.norm(my_V - Vt, ord='fro') / np.linalg.norm(Vt, ord='fro')
+    diff_mat.append(relative_errormat)
+    diff_U.append(relative_errorU)
+    diff_V.append(relative_errorV)
+print("mat ")
+print(diff_mat)
+print("U")
+print(diff_U)
+print("V")
+print(diff_V)
+
+
+
 
